@@ -1,0 +1,42 @@
+[agent]
+login = "WulfAI"
+human_login = "wlfghdr"
+
+[limits]
+max_engineer = 3
+max_review = 2
+open_pr_cap_per_repo = 3
+lock_ttl_hours = 6
+
+[cli_chain]
+engineer = ["codex", "claude", "agy"]
+review   = ["claude", "codex", "agy"]
+rebase   = ["claude", "agy", "codex"]
+
+[[repos]]
+name = "WulfAI/sagi"
+automerge = true
+
+[[repos]]
+name = "wlfghdr/agentic-enterprise"
+automerge = false
+
+[[repos]]
+name = "wlfghdr/agent-command-center"
+automerge = false
+
+[[repos]]
+name = "wlfghdr/agentic-kb"
+automerge = false
+
+[[repos]]
+name = "WulfAI/wulfai-kb"
+automerge = false
+
+[[repos]]
+name = "wlfghdr/timekiller_ios"
+automerge = false
+
+[[repos]]
+name = "WulfAI/timekiller_android"
+automerge = false

@@ -1,0 +1,12 @@
+[Unit]
+Description=Triage tick — near-realtime (60s)
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+RandomizedDelaySec=10
+Persistent=true
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

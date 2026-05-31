@@ -1,0 +1,276 @@
+#!/usr/bin/env bash
+# triage/review.sh REPO PR_NUMBER
+# Spawn Claude CLI to review a PR. Honors TRIAGE_ENABLE_DISPATCH=1.
+set -euo pipefail
+
+REPO="${1:?repo required}"
+NUM="${2:?pr number required}"
+
+REPO_NAME="${REPO##*/}"
+LOCAL_REPO="/srv/wulfai/repos/${REPO_NAME}"
+WORKTREE="/srv/wulfai/worktrees/${REPO_NAME}-pr-${NUM}"
+LOGDIR="/srv/wulfai/triage/logs"
+LOG="${LOGDIR}/$(date -u +%Y%m%d-%H%M%S)-review-${REPO_NAME}-${NUM}.log"
+CONF_FILE="${TRIAGE_CONFIG:-/srv/wulfai/triage/triage.toml}"
+AGENT_LOGIN="${TRIAGE_AGENT_LOGIN:-WulfAI}"
+HUMAN_LOGIN="${TRIAGE_HUMAN_LOGIN:-wlfghdr}"
+
+if [[ -f "${CONF_FILE}" ]]; then
+    CONF_AGENT=$(python3 -c "import tomllib, sys; d=tomllib.load(open(sys.argv[1], 'rb')); print(d.get('agent', {}).get('login', ''))" "${CONF_FILE}" 2>/dev/null || true)
+    CONF_HUMAN=$(python3 -c "import tomllib, sys; d=tomllib.load(open(sys.argv[1], 'rb')); print(d.get('agent', {}).get('human_login', ''))" "${CONF_FILE}" 2>/dev/null || true)
+    if [[ -n "${CONF_AGENT}" ]]; then AGENT_LOGIN="${CONF_AGENT}"; fi
+    if [[ -n "${CONF_HUMAN}" ]]; then HUMAN_LOGIN="${CONF_HUMAN}"; fi
+fi
+NEEDS_REVIEW_LABEL="needs-review"
+
+mkdir -p "${LOGDIR}" "$(dirname "${WORKTREE}")"
+
+exec >"${LOG}" 2>&1
+
+ensure_workflow_labels() {
+    gh label create "approved" -R "${REPO}" \
+        --description "PR is ready for human merge" \
+        --color "0e8a16" --force >/dev/null 2>&1 || true
+    gh label create "changes-requested" -R "${REPO}" \
+        --description "PR needs an engineering fix iteration" \
+        --color "d93f0b" --force >/dev/null 2>&1 || true
+    gh label create "blocked" -R "${REPO}" \
+        --description "PR is blocked and needs human attention" \
+        --color "b60205" --force >/dev/null 2>&1 || true
+    gh label create "${NEEDS_REVIEW_LABEL}" -R "${REPO}" \
+        --description "Deterministic triage review is in progress" \
+        --color "fbca04" --force >/dev/null 2>&1 || true
+}
+
+# Label/assignee mutations via REST API. `gh pr edit` triggers a deprecation
+# warning ("Projects (classic) is being deprecated") that exits 1 and aborts
+# the whole multi-flag edit, so we go around it. REST endpoints are atomic per
+# call and don't query projectCards.
+add_label() {
+    # add_label LABEL
+    gh api -X POST "repos/${REPO}/issues/${NUM}/labels" -f "labels[]=${1}" >/dev/null 2>&1 || \
+        echo "WARN: failed to add label '${1}' to ${REPO}#${NUM}" >&2
+}
+remove_label() {
+    # remove_label LABEL — 404 is OK (label wasn't on the issue)
+    gh api -X DELETE "repos/${REPO}/issues/${NUM}/labels/${1}" >/dev/null 2>&1 || true
+}
+add_assignee() {
+    gh api -X POST "repos/${REPO}/issues/${NUM}/assignees" -f "assignees[]=${1}" >/dev/null 2>&1 || \
+        echo "WARN: failed to add assignee '${1}' to ${REPO}#${NUM}" >&2
+}
+remove_assignee() {
+    gh api -X DELETE "repos/${REPO}/issues/${NUM}/assignees" -f "assignees[]=${1}" >/dev/null 2>&1 || true
+}
+
+    echo "==> triage/review: ${REPO}#${NUM}"
+
+    if [[ ! -d "${LOCAL_REPO}/.git" ]]; then
+        echo "FATAL: local repo not found at ${LOCAL_REPO}" >&2
+        exit 2
+    fi
+
+    git -C "${LOCAL_REPO}" fetch --quiet origin "pull/${NUM}/head:pr-${NUM}-review" || true
+    if [[ -e "${WORKTREE}" ]]; then
+        git -C "${WORKTREE}" reset --hard "pr-${NUM}-review"
+    else
+        git -C "${LOCAL_REPO}" worktree add "${WORKTREE}" "pr-${NUM}-review"
+    fi
+
+    PR_JSON=$(gh pr view "${NUM}" -R "${REPO}" --json title,body,baseRefName,headRefName,files,labels,assignees,isDraft,mergeStateStatus,author)
+    DIFF=$(gh pr diff "${NUM}" -R "${REPO}")
+
+    PROMPT=$(cat <<PROMPT_EOF
+You are reviewing PR #${NUM} of ${REPO}, checked out at ${WORKTREE}.
+
+PR metadata (JSON):
+${PR_JSON}
+
+Diff:
+${DIFF}
+
+Content checks (binding — flag violations as needs-fix unless trivial):
+- PR body must contain a closing keyword referencing an issue: \`closes #N\`, \`fixes #N\`, or \`resolves #N\` (cross-repo equivalents also OK). Missing link → needs-fix.
+- Stay scoped to the originating issue. Drive-by refactors are needs-fix.
+
+Out of scope for you (the wrapper enforces these — do NOT flag them as needs-fix):
+- Assignment (wrapper sets WulfAI on dispatch).
+- Draft state (wrapper flips ready-for-review after codex).
+- Label hygiene (wrapper applies based on your VERDICT).
+
+Review rules:
+- Honor the repo's AGENTS.md / CLAUDE.md.
+- Look for correctness bugs, missing tests, security issues, vendor lock-in, doc drift.
+- Run the repo's own checks where helpful.
+- Do not run gh commands or make workflow decisions. The wrapper handles labels and assignment based on your verdict.
+- Structure your output response exactly as follows (do not output any other content):
+
+  ### Review Summary
+
+  **Findings**
+  1. [Finding description with file path and line context if applicable, or "None"]
+
+  **Checks Run**
+  - [List any checks run and their status, e.g., 'pytest: pass']
+
+  VERDICT: [verdict]
+
+- Your final stdout line must be exactly one of:
+  VERDICT: merge-ready
+  VERDICT: needs-fix - reason
+  VERDICT: blocked - reason
+PROMPT_EOF
+)
+
+    if [[ "${TRIAGE_ENABLE_DISPATCH:-0}" != "1" ]]; then
+        echo "==> DRY RUN — would call claude -p with prompt of $(echo "${PROMPT}" | wc -c) bytes"
+        exit 0
+    fi
+
+    echo "==> marking review in progress"
+    ensure_workflow_labels
+    add_label "${NEEDS_REVIEW_LABEL}"
+
+    echo "==> dispatching to review fallback chain"
+    cd "${WORKTREE}"
+    # Pipe the prompt via stdin. Passing it as a positional arg lets --add-dir
+    # swallow it as another directory, and claude exits with "Input must be
+    # provided either through stdin or as a prompt argument".
+    CLAUDE_OUT=$(mktemp)
+    
+    CHAIN=()
+    if [[ -f "${CONF_FILE}" ]]; then
+        CHAIN_STR=$(python3 -c "import tomllib, sys; d=tomllib.load(open(sys.argv[1], 'rb')); print(' '.join(d.get('cli_chain', {}).get('review', [])))" "${CONF_FILE}" 2>/dev/null || true)
+        if [[ -n "${CHAIN_STR}" ]]; then
+            read -r -a CHAIN <<< "${CHAIN_STR}"
+        fi
+    fi
+    if [[ ${#CHAIN[@]} -eq 0 ]]; then
+        CHAIN=("claude" "codex" "agy")
+    fi
+
+    rc=1
+    for i in "${!CHAIN[@]}"; do
+        TOOL="${CHAIN[i]}"
+        STEP=$((i + 1))
+        TOTAL=${#CHAIN[@]}
+        
+        echo "--> [${STEP}/${TOTAL}] attempting ${TOOL}..."
+        
+        case "${TOOL}" in
+            codex)
+                set +e
+                printf '%s\n' "${PROMPT}" | codex exec --dangerously-bypass-approvals-and-sandbox --cd "${WORKTREE}" - 2>&1 | tee "${CLAUDE_OUT}"
+                rc=${PIPESTATUS[1]}
+                set -e
+                ;;
+            claude)
+                set +e
+                printf '%s\n' "${PROMPT}" | claude -p --add-dir "${WORKTREE}" 2>&1 | tee "${CLAUDE_OUT}"
+                rc=${PIPESTATUS[1]}
+                set -e
+                ;;
+            agy)
+                set +e
+                printf '%s\n' "${PROMPT}" | agy --print --dangerously-skip-permissions --add-dir "${WORKTREE}" 2>&1 | tee "${CLAUDE_OUT}"
+                rc=${PIPESTATUS[1]}
+                set -e
+                ;;
+            *)
+                echo "WARN: unknown tool in chain: ${TOOL}" >&2
+                rc=1
+                continue
+                ;;
+        esac
+        
+        echo "--> ${TOOL} exit=${rc}"
+        
+        if [[ ${rc} -eq 0 ]]; then
+            break
+        fi
+        
+        if [[ ${rc} -ne 0 ]]; then
+            if (( STEP < TOTAL )) && grep -Eqi "limit|quota|429|too many requests|cooldown|overloaded|throttl" "${CLAUDE_OUT}"; then
+                echo "--> [${STEP}/${TOTAL}] ${TOOL} reported limit exhaustion. falling back..."
+                continue
+            fi
+            break
+        fi
+    done
+
+    if [[ "${rc}" -eq 0 ]]; then
+        LAST_LINE=$(awk 'NF { line=$0 } END { print line }' "${CLAUDE_OUT}" | sed -E 's/[[:space:]]+$//')
+        echo "==> claude final line: ${LAST_LINE:-<empty>}"
+        case "${LAST_LINE}" in
+            "VERDICT: merge-ready"*)
+                echo "==> merge-ready; labeling approved and assigning ${HUMAN_LOGIN}"
+                remove_label "${NEEDS_REVIEW_LABEL}"
+                remove_label "in-progress"
+                remove_label "changes-requested"
+                remove_label "blocked"
+                add_label "approved"
+                add_assignee "${HUMAN_LOGIN}"
+                remove_assignee "${AGENT_LOGIN}"
+                
+                # Check for automerge and call merge.sh
+                local automerge="false"
+                if [[ -f "${CONF_FILE}" ]]; then
+                    automerge=$(python3 -c "import tomllib, sys; d=tomllib.load(open(sys.argv[1], 'rb')); print(any(r.get('name') == sys.argv[2] and r.get('automerge', False) for r in d.get('repos', [])))" "${CONF_FILE}" "${REPO}" 2>/dev/null || echo "false")
+                fi
+                if [[ "${automerge}" == "True" || "${automerge}" == "true" ]]; then
+                    echo "==> automerge enabled for ${REPO}; executing merge.sh"
+                    "$(dirname "$0")/merge.sh" "${REPO}" "${NUM}" || true
+                fi
+                ;;
+            "VERDICT: needs-fix"*)
+                echo "==> needs-fix; labeling changes-requested"
+                remove_label "${NEEDS_REVIEW_LABEL}"
+                remove_label "approved"
+                remove_label "blocked"
+                add_label "changes-requested"
+                ;;
+            "VERDICT: blocked"*)
+                echo "==> blocked; labeling blocked and handing back to ${HUMAN_LOGIN}"
+                remove_label "${NEEDS_REVIEW_LABEL}"
+                remove_label "in-progress"
+                remove_label "approved"
+                remove_label "changes-requested"
+                add_label "blocked"
+                add_assignee "${HUMAN_LOGIN}"
+                remove_assignee "${AGENT_LOGIN}"
+                ;;
+            *)
+                echo "FATAL: missing or invalid VERDICT final line" >&2
+                rm -f "${CLAUDE_OUT}"
+                exit 3
+                ;;
+        esac
+        
+        echo "==> posting review comment to PR #${NUM}"
+        CLEANED_OUT=$(mktemp)
+        awk '
+            /^tokens used$/ { p=NR }
+            { lines[NR]=$0 }
+            END {
+                if (p) {
+                    start = p + 2
+                } else {
+                    start = 1
+                    for (i=1; i<=NR; i++) {
+                        if (lines[i] == "codex") {
+                            start = i + 1
+                        }
+                    }
+                }
+                for (i=start; i<=NR; i++) {
+                    print lines[i]
+                }
+            }
+        ' "${CLAUDE_OUT}" > "${CLEANED_OUT}"
+
+        gh pr comment "${NUM}" -R "${REPO}" -F "${CLEANED_OUT}" >/dev/null 2>&1 || \
+            echo "WARN: failed to post review comment to ${REPO}#${NUM}" >&2
+        rm -f "${CLEANED_OUT}"
+    fi
+    rm -f "${CLAUDE_OUT}"
+    exit "${rc}"
