@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
-# triage/tick.sh — orchestrator. Detects items, dispatches each as a transient
+# scripts/tick.sh — orchestrator. Detects items, dispatches each as a transient
 # systemd unit so multiple engineer/reviewer sessions can run in parallel.
 # Idempotent via per-item locks; cap concurrency per kind.
 set -euo pipefail
 
-BIN=/srv/wulfai/triage/bin
-STATE=/srv/wulfai/triage/state
-LOCKS=${STATE}/locks
-LOGDIR=/srv/wulfai/triage/logs
-CONF_FILE="${TRIAGE_CONFIG:-/srv/wulfai/triage/triage.toml}"
+TRIAGE_DIR="${TRIAGE_DIR:-/srv/agentic-dev}"
+BIN="${TRIAGE_DIR}/bin"
+STATE="${TRIAGE_DIR}/state"
+LOCKS="${STATE}/locks"
+LOGDIR="${TRIAGE_DIR}/logs"
+CONF_FILE="${TRIAGE_CONFIG:-${TRIAGE_DIR}/triage.toml}"
 MAX_ENGINEER="${TRIAGE_MAX_ENGINEER:-3}"
 MAX_REVIEW="${TRIAGE_MAX_REVIEW:-2}"
 LOCK_TTL_HOURS="6"
@@ -39,7 +40,7 @@ if ! flock -n 9; then
 fi
 
 count_running() {
-    systemctl list-units --no-legend --state=running "triage-dispatch-${1}-*.service" 2>/dev/null \
+    systemctl list-units --no-legend --state=running "agentic-dispatch-${1}-*.service" 2>/dev/null \
         | wc -l | tr -d ' '
 }
 
@@ -146,7 +147,7 @@ cleanup_stale_locks() {
             continue
         fi
 
-        UNIT="triage-dispatch-${SLUG}.service"
+        UNIT="agentic-dispatch-${SLUG}.service"
 
         # Build a one-line bash command that runs the script and drops the lock on success.
         # %q-quote each arg so spaces / shell metachars in titles never bite.

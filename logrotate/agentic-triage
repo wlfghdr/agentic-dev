@@ -1,4 +1,4 @@
-/srv/wulfai/triage/logs/*.log {
+/srv/agentic-dev/logs/*.log {
     daily
     rotate 14
     missingok

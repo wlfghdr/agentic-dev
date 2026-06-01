@@ -1,5 +1,5 @@
 [Unit]
-Description=Sagi triage tick (detect + spawn parallel dispatchers)
+Description=Agentic Dev triage tick (detect + spawn parallel dispatchers)
 After=network-online.target
 Wants=network-online.target
 
@@ -7,12 +7,12 @@ Wants=network-online.target
 Type=oneshot
 User=root
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-# Default: dry-run. Flip to 1 to enable real Codex/Claude dispatch.
+# Default: dry-run. Flip to 1 to enable real Codex/Claude/AGY dispatch.
 Environment=TRIAGE_ENABLE_DISPATCH=0
 # Per-kind concurrency caps for transient dispatcher units.
 Environment=TRIAGE_MAX_ENGINEER=3
 Environment=TRIAGE_MAX_REVIEW=2
-ExecStart=/srv/wulfai/triage/bin/tick.sh
+ExecStart=/srv/agentic-dev/bin/tick.sh
 StandardOutput=journal
 StandardError=journal
 # Orchestrator now exits fast (dispatchers run as transient units); keep a tight ceiling.

@@ -25,7 +25,7 @@ from typing import Any
 import tomllib
 
 def load_config() -> dict:
-    config_path = os.environ.get("TRIAGE_CONFIG", "/srv/wulfai/triage/triage.toml")
+    config_path = os.environ.get("TRIAGE_CONFIG", "/srv/agentic-dev/triage.toml")
     if not os.path.exists(config_path):
         return {}
     try:
@@ -39,23 +39,15 @@ CONFIG = load_config()
 
 WATCH_REPOS = [r["name"] for r in CONFIG.get("repos", []) if "name" in r]
 if not WATCH_REPOS:
-    WATCH_REPOS = [
-        "WulfAI/sagi",
-        "wlfghdr/agentic-enterprise",
-        "wlfghdr/agent-command-center",
-        "wlfghdr/agentic-kb",
-        "WulfAI/wulfai-kb",
-        "wlfghdr/timekiller_ios",
-        "WulfAI/timekiller_android",
-    ]
+    WATCH_REPOS = []
 
-AGENT_LOGIN = CONFIG.get("agent", {}).get("login", "WulfAI")
-HUMAN_LOGIN = CONFIG.get("agent", {}).get("human_login", "wlfghdr")
+AGENT_LOGIN = CONFIG.get("agent", {}).get("login", "agent-login")
+HUMAN_LOGIN = CONFIG.get("agent", {}).get("human_login", "human-login")
 APPROVED_LABEL = "approved"
 CHANGES_REQUESTED_LABEL = "changes-requested"
 BLOCKED_LABEL = "blocked"
 TERMINAL_REVIEW_LABELS = {APPROVED_LABEL, CHANGES_REQUESTED_LABEL, BLOCKED_LABEL}
-STATE_DIR = Path("/srv/wulfai/triage/state")
+STATE_DIR = Path(os.environ.get("TRIAGE_STATE_DIR", "/srv/agentic-dev/state"))
 HISTORY_RETENTION_DAYS = int(os.environ.get("TRIAGE_HISTORY_RETENTION_DAYS", "14"))
 
 limits_config = CONFIG.get("limits", {})
@@ -118,6 +110,8 @@ def count_open_agent_prs(repo: str) -> int:
         "--json", "number",
     ])
     return len(prs) if isinstance(prs, list) else 0
+
+
 def demote_stale_approved_prs(repo: str) -> None:
     """Find open PRs authored by AGENT_LOGIN that have the 'approved' label
     but are conflicting, dirty, behind main, or have bad/red CI checks,

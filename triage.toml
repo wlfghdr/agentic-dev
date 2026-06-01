@@ -1,42 +1,26 @@
 [agent]
-login = "WulfAI"
-human_login = "wlfghdr"
+# The GitHub username of the triage agent
+login = "agent-login"
+# The GitHub username of the human reviewer/fallback
+human_login = "human-login"
 
 [limits]
+# Maximum concurrent engineer agent sessions
 max_engineer = 3
+# Maximum concurrent reviewer agent sessions
 max_review = 2
+# Maximum open agent-authored PRs per repository to prevent backlog flooding
 open_pr_cap_per_repo = 3
+# Time-to-live for dispatch locks before they are considered stale (in hours)
 lock_ttl_hours = 6
 
 [cli_chain]
+# Order of tool CLI execution to fallback on errors (e.g. rate limits)
 engineer = ["codex", "claude", "agy"]
 review   = ["claude", "codex", "agy"]
 rebase   = ["claude", "agy", "codex"]
 
+# List of repositories to monitor
 [[repos]]
-name = "WulfAI/sagi"
-automerge = true
-
-[[repos]]
-name = "wlfghdr/agentic-enterprise"
-automerge = false
-
-[[repos]]
-name = "wlfghdr/agent-command-center"
-automerge = false
-
-[[repos]]
-name = "wlfghdr/agentic-kb"
-automerge = false
-
-[[repos]]
-name = "WulfAI/wulfai-kb"
-automerge = false
-
-[[repos]]
-name = "wlfghdr/timekiller_ios"
-automerge = false
-
-[[repos]]
-name = "WulfAI/timekiller_android"
+name = "owner/repo-name"
 automerge = false
