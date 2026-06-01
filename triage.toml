@@ -12,7 +12,7 @@ max_review = 2
 # Maximum open agent-authored PRs per repository to prevent backlog flooding
 open_pr_cap_per_repo = 3
 # Time-to-live for dispatch locks before they are considered stale (in hours)
-lock_ttl_hours = 6
+lock_ttl_hours = 2
 
 [cli_chain]
 # Order of tool CLI execution to fallback on errors (e.g. rate limits)

@@ -83,7 +83,7 @@ human_login = "human-login"
 max_engineer = 3            # Max parallel engineering dispatches
 max_review = 2              # Max parallel review dispatches
 open_pr_cap_per_repo = 3    # Cap open PRs per repo to match human approval bandwidth
-lock_ttl_hours = 6          # TTL for stale locks
+lock_ttl_hours = 2          # TTL for stale locks
 
 [cli_chain]
 engineer = ["codex", "claude", "agy"]  # Fallback chain for writing code
