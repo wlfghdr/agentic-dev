@@ -145,6 +145,21 @@ block_rebase_conflict() {
     add_label "${REPO}" "${NUM}" "blocked"
     add_assignee "${REPO}" "${NUM}" "${HUMAN_LOGIN}"
     remove_assignee "${REPO}" "${NUM}" "${AGENT_LOGIN}"
+
+    # Request review from human
+    echo "==> Requesting review from human ${HUMAN_LOGIN}"
+    gh api -X POST "repos/${REPO}/pulls/${NUM}/requested_reviewers" -f "reviewers[]=${HUMAN_LOGIN}" >/dev/null 2>&1 || true
+
+    # Assign originating issues
+    local issue_num
+    for issue_num in $(echo "${PR_JSON}" | jq -r '.closingIssuesReferences[].number' 2>/dev/null || true); do
+        if [[ -n "${issue_num}" && "${issue_num}" != "null" ]]; then
+            echo "==> Handing over originating issue #${issue_num} to ${HUMAN_LOGIN}"
+            add_assignee "${REPO}" "${issue_num}" "${HUMAN_LOGIN}"
+            remove_assignee "${REPO}" "${issue_num}" "${AGENT_LOGIN}"
+        fi
+    done
+
     gh pr comment "${NUM}" -R "${REPO}" --body "${1}" >/dev/null 2>&1 || true
 }
 
@@ -252,7 +267,7 @@ git -C "${LOCAL_REPO}" fetch --quiet
 git -C "${LOCAL_REPO}" worktree prune
 
 if [[ "${MODE}" == "pr" || "${MODE}" == "rebase" ]]; then
-    PR_JSON=$(gh pr view "${NUM}" -R "${REPO}" --json title,body,baseRefName,headRefName,headRepositoryOwner,url,reviewDecision,mergeable,mergeStateStatus,statusCheckRollup,reviews,comments,files,labels,commits)
+    PR_JSON=$(gh pr view "${NUM}" -R "${REPO}" --json title,body,baseRefName,headRefName,headRepositoryOwner,url,reviewDecision,mergeable,mergeStateStatus,statusCheckRollup,reviews,comments,files,labels,commits,closingIssuesReferences)
     BASE_REF=$(echo "${PR_JSON}" | jq -r '.baseRefName')
     HEAD_REF=$(echo "${PR_JSON}" | jq -r '.headRefName')
     HEAD_OWNER=$(echo "${PR_JSON}" | jq -r '.headRepositoryOwner.login // ""')
@@ -286,6 +301,21 @@ if [[ "${MODE}" == "pr" || "${MODE}" == "rebase" ]]; then
             add_label "${REPO}" "${NUM}" "blocked"
             add_assignee "${REPO}" "${NUM}" "${HUMAN_LOGIN}"
             remove_assignee "${REPO}" "${NUM}" "${AGENT_LOGIN}"
+
+            # Request review from human
+            echo "==> Requesting review from human ${HUMAN_LOGIN}"
+            gh api -X POST "repos/${REPO}/pulls/${NUM}/requested_reviewers" -f "reviewers[]=${HUMAN_LOGIN}" >/dev/null 2>&1 || true
+
+            # Assign originating issues
+            local issue_num
+            for issue_num in $(echo "${PR_JSON}" | jq -r '.closingIssuesReferences[].number' 2>/dev/null || true); do
+                if [[ -n "${issue_num}" && "${issue_num}" != "null" ]]; then
+                    echo "==> Handing over originating issue #${issue_num} to ${HUMAN_LOGIN}"
+                    add_assignee "${REPO}" "${issue_num}" "${HUMAN_LOGIN}"
+                    remove_assignee "${REPO}" "${issue_num}" "${AGENT_LOGIN}"
+                fi
+            done
+
             gh pr comment "${NUM}" -R "${REPO}" --body "Auto-rebase skipped: PR head lives on a fork (${HEAD_OWNER}). Needs human rebase." >/dev/null 2>&1 || true
             exit 4
         fi

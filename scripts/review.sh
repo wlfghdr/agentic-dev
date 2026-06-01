@@ -56,12 +56,14 @@ remove_label() {
     # remove_label LABEL — 404 is OK (label wasn't on the issue)
     gh api -X DELETE "repos/${REPO}/issues/${NUM}/labels/${1}" >/dev/null 2>&1 || true
 }
-add_assignee() {
-    gh api -X POST "repos/${REPO}/issues/${NUM}/assignees" -f "assignees[]=${1}" >/dev/null 2>&1 || \
-        echo "WARN: failed to add assignee '${1}' to ${REPO}#${NUM}" >&2
+add_assignee_to() {
+    # add_assignee_to REPO ISSUE_OR_PR ASSIGNEE
+    gh api -X POST "repos/${1}/issues/${2}/assignees" -f "assignees[]=${3}" >/dev/null 2>&1 || \
+        echo "WARN: failed to add assignee '${3}' to ${1}#${2}" >&2
 }
-remove_assignee() {
-    gh api -X DELETE "repos/${REPO}/issues/${NUM}/assignees" -f "assignees[]=${1}" >/dev/null 2>&1 || true
+remove_assignee_from() {
+    # remove_assignee_from REPO ISSUE_OR_PR ASSIGNEE
+    gh api -X DELETE "repos/${1}/issues/${2}/assignees" -f "assignees[]=${3}" >/dev/null 2>&1 || true
 }
 
 echo "==> triage/review: ${REPO}#${NUM}"
@@ -78,7 +80,8 @@ else
     git -C "${LOCAL_REPO}" worktree add "${WORKTREE}" "pr-${NUM}-review"
 fi
 
-PR_JSON=$(gh pr view "${NUM}" -R "${REPO}" --json title,body,baseRefName,headRefName,files,labels,assignees,isDraft,mergeStateStatus,author)
+PR_JSON=$(gh pr view "${NUM}" -R "${REPO}" --json title,body,baseRefName,headRefName,files,labels,assignees,isDraft,mergeStateStatus,author,closingIssuesReferences)
+PR_AUTHOR=$(echo "${PR_JSON}" | jq -r '.author.login // ""')
 DIFF=$(gh pr diff "${NUM}" -R "${REPO}")
 
 PROMPT=$(cat <<PROMPT_EOF
@@ -192,7 +195,7 @@ for i in "${!CHAIN[@]}"; do
     
     if [[ ${rc} -ne 0 ]]; then
         if (( STEP < TOTAL )) && grep -Eqi "limit|quota|429|too many requests|cooldown|overloaded|throttl" "${CLAUDE_OUT}"; then
-            echo "--> [${STEP}/${TOTAL}] ${TOOL} reported limit exhaustion. falling back..."
+            echo "--> [${step}/${total}] ${tool} reported limit exhaustion. falling back..."
             continue
         fi
         break
@@ -202,6 +205,8 @@ done
 if [[ "${rc}" -eq 0 ]]; then
     LAST_LINE=$(awk 'NF { line=$0 } END { print line }' "${CLAUDE_OUT}" | sed -E 's/[[:space:]]+$//')
     echo "==> claude final line: ${LAST_LINE:-<empty>}"
+    
+    review_flag="--comment"
     case "${LAST_LINE}" in
         "VERDICT: merge-ready"*)
             echo "==> merge-ready; labeling approved and assigning ${HUMAN_LOGIN}"
@@ -210,8 +215,23 @@ if [[ "${rc}" -eq 0 ]]; then
             remove_label "changes-requested"
             remove_label "blocked"
             add_label "approved"
-            add_assignee "${HUMAN_LOGIN}"
-            remove_assignee "${AGENT_LOGIN}"
+            add_assignee_to "${REPO}" "${NUM}" "${HUMAN_LOGIN}"
+            remove_assignee_from "${REPO}" "${NUM}" "${AGENT_LOGIN}"
+            review_flag="--approve"
+
+            # Request review from human
+            echo "==> Requesting review from human ${HUMAN_LOGIN}"
+            gh api -X POST "repos/${REPO}/pulls/${NUM}/requested_reviewers" -f "reviewers[]=${HUMAN_LOGIN}" >/dev/null 2>&1 || true
+
+            # Assign originating issues
+            local issue_num
+            for issue_num in $(echo "${PR_JSON}" | jq -r '.closingIssuesReferences[].number' 2>/dev/null || true); do
+                if [[ -n "${issue_num}" && "${issue_num}" != "null" ]]; then
+                    echo "==> Handing over originating issue #${issue_num} to ${HUMAN_LOGIN}"
+                    add_assignee_to "${REPO}" "${issue_num}" "${HUMAN_LOGIN}"
+                    remove_assignee_from "${REPO}" "${issue_num}" "${AGENT_LOGIN}"
+                fi
+            done
             
             # Check for automerge and call merge.sh
             local automerge="false"
@@ -229,6 +249,7 @@ if [[ "${rc}" -eq 0 ]]; then
             remove_label "approved"
             remove_label "blocked"
             add_label "changes-requested"
+            review_flag="--request-changes"
             ;;
         "VERDICT: blocked"*)
             echo "==> blocked; labeling blocked and handing back to ${HUMAN_LOGIN}"
@@ -237,8 +258,23 @@ if [[ "${rc}" -eq 0 ]]; then
             remove_label "approved"
             remove_label "changes-requested"
             add_label "blocked"
-            add_assignee "${HUMAN_LOGIN}"
-            remove_assignee "${AGENT_LOGIN}"
+            add_assignee_to "${REPO}" "${NUM}" "${HUMAN_LOGIN}"
+            remove_assignee_from "${REPO}" "${NUM}" "${AGENT_LOGIN}"
+            review_flag="--comment"
+
+            # Request review from human
+            echo "==> Requesting review from human ${HUMAN_LOGIN}"
+            gh api -X POST "repos/${REPO}/pulls/${NUM}/requested_reviewers" -f "reviewers[]=${HUMAN_LOGIN}" >/dev/null 2>&1 || true
+
+            # Assign originating issues
+            local issue_num
+            for issue_num in $(echo "${PR_JSON}" | jq -r '.closingIssuesReferences[].number' 2>/dev/null || true); do
+                if [[ -n "${issue_num}" && "${issue_num}" != "null" ]]; then
+                    echo "==> Handing over originating issue #${issue_num} to ${HUMAN_LOGIN}"
+                    add_assignee_to "${REPO}" "${issue_num}" "${HUMAN_LOGIN}"
+                    remove_assignee_from "${REPO}" "${issue_num}" "${AGENT_LOGIN}"
+                fi
+            done
             ;;
         *)
             echo "FATAL: missing or invalid VERDICT final line" >&2
@@ -246,20 +282,31 @@ if [[ "${rc}" -eq 0 ]]; then
             exit 3
             ;;
     esac
+
+    if [[ "${review_flag}" == "--approve" && "${PR_AUTHOR}" == "${AGENT_LOGIN}" ]]; then
+        echo "==> PR authored by ${AGENT_LOGIN}; GitHub forbids self-approval. Submitting review as comment instead."
+        review_flag="--comment"
+    fi
     
-    echo "==> posting review comment to PR #${NUM}"
+    echo "==> submitting formal review to PR #${NUM}"
     CLEANED_OUT=$(mktemp)
     awk '
-        /^tokens used$/ { p=NR }
+        /### Review Summary/ { p=NR }
         { lines[NR]=$0 }
         END {
             if (p) {
-                start = p + 2
+                start = p
             } else {
+                # Fallback to checking tokens used or codex
                 start = 1
                 for (i=1; i<=NR; i++) {
+                    if (lines[i] == "tokens used") {
+                        start = i + 2
+                        break
+                    }
                     if (lines[i] == "codex") {
                         start = i + 1
+                        break
                     }
                 }
             }
@@ -269,8 +316,8 @@ if [[ "${rc}" -eq 0 ]]; then
         }
     ' "${CLAUDE_OUT}" > "${CLEANED_OUT}"
 
-    gh pr comment "${NUM}" -R "${REPO}" -F "${CLEANED_OUT}" >/dev/null 2>&1 || \
-        echo "WARN: failed to post review comment to ${REPO}#${NUM}" >&2
+    gh pr review "${NUM}" -R "${REPO}" "${review_flag}" -F "${CLEANED_OUT}" >/dev/null 2>&1 || \
+        echo "WARN: failed to submit review to ${REPO}#${NUM}" >&2
     rm -f "${CLEANED_OUT}"
 fi
 rm -f "${CLAUDE_OUT}"
