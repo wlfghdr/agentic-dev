@@ -168,8 +168,6 @@ cleanup_stale_locks() {
             --setenv="TRIAGE_REPOS_DIR=${TRIAGE_REPOS_DIR:-/srv/agentic-dev/../repos}" \
             --setenv="TRIAGE_WORKTREES_DIR=${TRIAGE_WORKTREES_DIR:-/srv/agentic-dev/../worktrees}" \
             --setenv="TRIAGE_CONFIG=${CONF_FILE}" \
-            --setenv="TRIAGE_AGENT_LOGIN=${AGENT_LOGIN}" \
-            --setenv="TRIAGE_HUMAN_LOGIN=${HUMAN_LOGIN}" \
             --property=TimeoutStartSec=6h \
             --property=KillMode=mixed \
             /bin/bash -c "${WRAPPED}"; then
