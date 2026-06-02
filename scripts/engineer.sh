@@ -307,7 +307,6 @@ if [[ "${MODE}" == "pr" || "${MODE}" == "rebase" ]]; then
             gh api -X POST "repos/${REPO}/pulls/${NUM}/requested_reviewers" -f "reviewers[]=${HUMAN_LOGIN}" >/dev/null 2>&1 || true
 
             # Assign originating issues
-            local issue_num
             for issue_num in $(echo "${PR_JSON}" | jq -r '.closingIssuesReferences[].number' 2>/dev/null || true); do
                 if [[ -n "${issue_num}" && "${issue_num}" != "null" ]]; then
                     echo "==> Handing over originating issue #${issue_num} to ${HUMAN_LOGIN}"

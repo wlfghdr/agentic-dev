@@ -224,7 +224,6 @@ if [[ "${rc}" -eq 0 ]]; then
             gh api -X POST "repos/${REPO}/pulls/${NUM}/requested_reviewers" -f "reviewers[]=${HUMAN_LOGIN}" >/dev/null 2>&1 || true
 
             # Assign originating issues
-            local issue_num
             for issue_num in $(echo "${PR_JSON}" | jq -r '.closingIssuesReferences[].number' 2>/dev/null || true); do
                 if [[ -n "${issue_num}" && "${issue_num}" != "null" ]]; then
                     echo "==> Handing over originating issue #${issue_num} to ${HUMAN_LOGIN}"
@@ -234,7 +233,7 @@ if [[ "${rc}" -eq 0 ]]; then
             done
             
             # Check for automerge and call merge.sh
-            local automerge="false"
+            automerge="false"
             if [[ -f "${CONF_FILE}" ]]; then
                 automerge=$(python3 -c "import tomllib, sys; d=tomllib.load(open(sys.argv[1], 'rb')); print(any(r.get('name') == sys.argv[2] and r.get('automerge', False) for r in d.get('repos', [])))" "${CONF_FILE}" "${REPO}" 2>/dev/null || echo "false")
             fi
@@ -267,7 +266,6 @@ if [[ "${rc}" -eq 0 ]]; then
             gh api -X POST "repos/${REPO}/pulls/${NUM}/requested_reviewers" -f "reviewers[]=${HUMAN_LOGIN}" >/dev/null 2>&1 || true
 
             # Assign originating issues
-            local issue_num
             for issue_num in $(echo "${PR_JSON}" | jq -r '.closingIssuesReferences[].number' 2>/dev/null || true); do
                 if [[ -n "${issue_num}" && "${issue_num}" != "null" ]]; then
                     echo "==> Handing over originating issue #${issue_num} to ${HUMAN_LOGIN}"

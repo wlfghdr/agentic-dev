@@ -12,7 +12,7 @@ LOGDIR="${TRIAGE_DIR}/logs"
 CONF_FILE="${TRIAGE_CONFIG:-${TRIAGE_DIR}/triage.toml}"
 MAX_ENGINEER="${TRIAGE_MAX_ENGINEER:-3}"
 MAX_REVIEW="${TRIAGE_MAX_REVIEW:-2}"
-LOCK_TTL_HOURS="6"
+LOCK_TTL_HOURS="2"
 
 if [[ -f "${CONF_FILE}" ]]; then
     CONF_MAX_ENG=$(python3 -c "import tomllib, sys; d=tomllib.load(open(sys.argv[1], 'rb')); print(d.get('limits', {}).get('max_engineer', ''))" "${CONF_FILE}" 2>/dev/null || true)
@@ -52,7 +52,7 @@ cleanup_stale_locks() {
     for lock in "${LOCKS}"/*.lock; do
         slug="$(basename "${lock}" .lock)"
         if ! echo "${report}" | jq -e --arg slug "${slug}" '.liveLockSlugs // [] | index($slug)' >/dev/null; then
-            echo "remove stale lock ${slug}"
+            echo "WARN: removing stale lock ${slug} (not in liveLockSlugs)"
             rm -f "${lock}"
         fi
     done
@@ -106,6 +106,7 @@ cleanup_stale_locks() {
                 echo "skip ${KIND} ${REPO}#${NUM} — locked (age ${AGE}s)"
                 continue
             fi
+            echo "WARN: removing expired lock ${SLUG} (age ${AGE}s >= TTL ${LOCK_TTL}s)"
             rm -f "${LOCK}"
         fi
 
@@ -152,7 +153,7 @@ cleanup_stale_locks() {
         # Build a one-line bash command that runs the script and drops the lock on success.
         # %q-quote each arg so spaces / shell metachars in titles never bite.
         printf -v QUOTED_ARGS '%q ' "${CMD_ARGS[@]}"
-        WRAPPED="${SCRIPT} ${QUOTED_ARGS}; rc=\$?; [ \$rc -eq 0 ] && rm -f $(printf '%q' "${LOCK}"); exit \$rc"
+        WRAPPED="${SCRIPT} ${QUOTED_ARGS}; rc=\$?; if [ \$rc -eq 0 ]; then rm -f $(printf '%q' "${LOCK}"); else touch -d \"@\$(( \$(date +%s) - ${LOCK_TTL} + 1200 ))\" $(printf '%q' "${LOCK}"); fi; exit \$rc"
 
         # Forward HOME so gh CLI in the dispatched unit can read /root/.config/gh
         # (systemd-run transient units don't inherit the caller's HOME automatically).
