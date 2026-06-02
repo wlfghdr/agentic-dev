@@ -155,8 +155,8 @@ cleanup_stale_locks() {
         printf -v QUOTED_ARGS '%q ' "${CMD_ARGS[@]}"
         WRAPPED="${SCRIPT} ${QUOTED_ARGS}; rc=\$?; if [ \$rc -eq 0 ]; then rm -f $(printf '%q' "${LOCK}"); else touch -d \"@\$(( \$(date +%s) - ${LOCK_TTL} + 1200 ))\" $(printf '%q' "${LOCK}"); fi; exit \$rc"
 
-        # Forward HOME so gh CLI in the dispatched unit can read /root/.config/gh
-        # (systemd-run transient units don't inherit the caller's HOME automatically).
+        # Forward HOME and triage configuration variables so the dispatched unit 
+        # can read configuration, resolve correct paths, and use git credentials.
         if ! systemd-run \
             --no-block \
             --collect \
@@ -164,6 +164,12 @@ cleanup_stale_locks() {
             --description="triage dispatch ${KIND}/${MODE} ${REPO}#${NUM}" \
             --setenv=TRIAGE_ENABLE_DISPATCH=1 \
             --setenv="HOME=${HOME:-/root}" \
+            --setenv="TRIAGE_DIR=${TRIAGE_DIR}" \
+            --setenv="TRIAGE_REPOS_DIR=${TRIAGE_REPOS_DIR:-/srv/agentic-dev/../repos}" \
+            --setenv="TRIAGE_WORKTREES_DIR=${TRIAGE_WORKTREES_DIR:-/srv/agentic-dev/../worktrees}" \
+            --setenv="TRIAGE_CONFIG=${CONF_FILE}" \
+            --setenv="TRIAGE_AGENT_LOGIN=${AGENT_LOGIN}" \
+            --setenv="TRIAGE_HUMAN_LOGIN=${HUMAN_LOGIN}" \
             --property=TimeoutStartSec=6h \
             --property=KillMode=mixed \
             /bin/bash -c "${WRAPPED}"; then

@@ -20,7 +20,7 @@ REPO_NAME="${REPO##*/}"
 REPO_OWNER="${REPO%%/*}"
 
 TRIAGE_DIR="${TRIAGE_DIR:-/srv/agentic-dev}"
-LOCAL_REPO="${TRIAGE_REPOS_DIR:-/srv/agentic-dev/repos}/${REPO_NAME}"
+LOCAL_REPO="${TRIAGE_REPOS_DIR:-/srv/agentic-dev/../repos}/${REPO_NAME}"
 CONF_FILE="${TRIAGE_CONFIG:-${TRIAGE_DIR}/triage.toml}"
 AGENT_LOGIN="${TRIAGE_AGENT_LOGIN:-agent-login}"
 HUMAN_LOGIN="${TRIAGE_HUMAN_LOGIN:-human-login}"
@@ -36,11 +36,11 @@ LOG="${LOGDIR}/$(date -u +%Y%m%d-%H%M%S)-engineer-${REPO_NAME}-${MODE}-${NUM}.lo
 
 case "${MODE}" in
     pr|rebase)
-        WORKTREE="${TRIAGE_WORKTREES_DIR:-/srv/agentic-dev/worktrees}/${REPO_NAME}-pr-${NUM}"
+        WORKTREE="${TRIAGE_WORKTREES_DIR:-/srv/agentic-dev/../worktrees}/${REPO_NAME}-pr-${NUM}"
         BRANCH=""
         ;;
     *)
-        WORKTREE="${TRIAGE_WORKTREES_DIR:-/srv/agentic-dev/worktrees}/${REPO_NAME}-${NUM}"
+        WORKTREE="${TRIAGE_WORKTREES_DIR:-/srv/agentic-dev/../worktrees}/${REPO_NAME}-${NUM}"
         BRANCH="agentic-dev/issue-${NUM}"
         ;;
 esac
