@@ -54,7 +54,9 @@ install -m 0755 "${REPO_DIR}/scripts/merge.sh"    "${TRIAGE_DIR}/bin/merge.sh"
 install -m 0644 "${REPO_DIR}/README.md"           "${TRIAGE_DIR}/README.md"
 
 # systemd units
-install -m 0644 "${REPO_DIR}/systemd/triage-tick.service" /etc/systemd/system/triage-tick.service
+sed "s|/srv/agentic-dev|${TRIAGE_DIR}|g" "${REPO_DIR}/systemd/triage-tick.service" > /tmp/triage-tick.service
+install -m 0644 /tmp/triage-tick.service /etc/systemd/system/triage-tick.service
+rm -f /tmp/triage-tick.service
 install -m 0644 "${REPO_DIR}/systemd/triage-tick.timer"   /etc/systemd/system/triage-tick.timer
 
 # Versioned drop-ins (production overrides that belong in Git, not local edits).
@@ -94,7 +96,9 @@ for unit in triage-tick.timer triage-tick.service; do
 done
 
 # local log retention
-install -m 0644 "${REPO_DIR}/logrotate/agentic-triage" /etc/logrotate.d/agentic-triage
+sed "s|/srv/agentic-dev|${TRIAGE_DIR}|g" "${REPO_DIR}/logrotate/agentic-triage" > /tmp/agentic-triage
+install -m 0644 /tmp/agentic-triage /etc/logrotate.d/agentic-triage
+rm -f /tmp/agentic-triage
 
 systemctl daemon-reload
 systemctl enable triage-tick.timer
