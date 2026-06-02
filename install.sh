@@ -45,12 +45,12 @@ else
     echo "==> triage.toml already exists, skipping template overwrite"
 fi
 
-# scripts (already named correctly in the repo)
-install -m 0755 "${REPO_DIR}/scripts/detect.py"   "${TRIAGE_DIR}/bin/detect.py"
-install -m 0755 "${REPO_DIR}/scripts/tick.sh"     "${TRIAGE_DIR}/bin/tick.sh"
-install -m 0755 "${REPO_DIR}/scripts/engineer.sh" "${TRIAGE_DIR}/bin/engineer.sh"
-install -m 0755 "${REPO_DIR}/scripts/review.sh"   "${TRIAGE_DIR}/bin/review.sh"
-install -m 0755 "${REPO_DIR}/scripts/merge.sh"    "${TRIAGE_DIR}/bin/merge.sh"
+# scripts (compiled with dynamic path substitutions)
+for script in detect.py tick.sh engineer.sh review.sh merge.sh; do
+    sed "s|/srv/agentic-dev|${TRIAGE_DIR}|g" "${REPO_DIR}/scripts/${script}" > "/tmp/${script}"
+    install -m 0755 "/tmp/${script}" "${TRIAGE_DIR}/bin/${script}"
+    rm -f "/tmp/${script}"
+done
 install -m 0644 "${REPO_DIR}/README.md"           "${TRIAGE_DIR}/README.md"
 
 # systemd units
