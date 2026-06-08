@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 # scripts/engineer.sh [--pr|-c|--rebase] REPO ISSUE_OR_PR_NUMBER
-# Spawn Codex CLI on a worktree to implement an issue or fix an assigned PR.
+# Spawn an agent CLI on a worktree to implement an issue or fix an assigned PR.
 # --rebase first tries the deterministic fast path: rebase the PR branch onto
-# its base, push, exit. If the rebase hits conflicts, fall back to Codex in the
-# conflicted worktree so it can resolve conflicts and complete the rebase.
+# its base, push, exit. If the rebase hits conflicts, fall back to the configured
+# agent chain in the conflicted worktree to complete the rebase.
 # Honors TRIAGE_ENABLE_DISPATCH=1 — otherwise logs the plan and exits.
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=cli_dispatch.sh
+source "${SCRIPT_DIR}/cli_dispatch.sh"
 
 MODE="issue"
 case "${1:-}" in
@@ -186,17 +190,8 @@ ${PR_JSON}
 "
 
     echo "==> rebase conflict; starting conflict resolution chain"
-    local chain=()
-    if [[ -f "${CONF_FILE}" ]]; then
-        local chain_str
-        chain_str=$(python3 -c "import tomllib, sys; d=tomllib.load(open(sys.argv[1], 'rb')); print(' '.join(d.get('cli_chain', {}).get('rebase', [])))" "${CONF_FILE}" 2>/dev/null || true)
-        if [[ -n "${chain_str}" ]]; then
-            read -r -a chain <<< "${chain_str}"
-        fi
-    fi
-    if [[ ${#chain[@]} -eq 0 ]]; then
-        chain=("claude" "agy" "codex")
-    fi
+    load_cli_chain "${CONF_FILE}" "rebase" "claude" "agy" "codex"
+    local chain=("${CLI_CHAIN[@]}")
 
     local out_file
     out_file=$(mktemp)
@@ -209,31 +204,11 @@ ${PR_JSON}
         
         echo "--> [${step}/${total}] attempting rebase conflict resolution via ${tool}..."
         
-        case "${tool}" in
-            codex)
-                set +e
-                printf '%s\n' "${prompt}" | codex exec --dangerously-bypass-approvals-and-sandbox --cd "${WORKTREE}" - 2>&1 | tee "${out_file}"
-                rc=${PIPESTATUS[1]}
-                set -e
-                ;;
-            claude)
-                set +e
-                printf '%s\n' "${prompt}" | claude -p --add-dir "${WORKTREE}" 2>&1 | tee "${out_file}"
-                rc=${PIPESTATUS[1]}
-                set -e
-                ;;
-            agy)
-                set +e
-                printf '%s\n' "${prompt}" | agy --print --dangerously-skip-permissions --add-dir "${WORKTREE}" 2>&1 | tee "${out_file}"
-                rc=${PIPESTATUS[1]}
-                set -e
-                ;;
-            *)
-                echo "WARN: unknown tool in rebase chain: ${tool}" >&2
-                rc=1
-                continue
-                ;;
-        esac
+        if run_cli_tool "${CONF_FILE}" "${tool}" "${WORKTREE}" "${prompt}" "${out_file}"; then
+            rc=0
+        else
+            rc=$?
+        fi
         
         echo "--> ${tool} conflict-resolution exit=${rc}"
         
@@ -242,8 +217,8 @@ ${PR_JSON}
         fi
         
         if [[ ${rc} -ne 0 ]]; then
-            if (( step < total )) && grep -Eqi "limit|quota|429|too many requests|cooldown|overloaded|throttl" "${out_file}"; then
-                echo "--> [${step}/${total}] ${tool} reported limit exhaustion. falling back..."
+            if (( step < total )) && { [[ ${rc} -eq 127 ]] || grep -Eqi "limit|quota|429|too many requests|cooldown|overloaded|throttl" "${out_file}"; }; then
+                echo "--> [${step}/${total}] ${tool} unavailable or rate-limited. falling back..."
                 continue
             fi
             break
@@ -334,17 +309,17 @@ if [[ "${MODE}" == "pr" || "${MODE}" == "rebase" ]]; then
             exit 0
         else
             if run_rebase_conflict_resolution && ! rebase_in_progress && worktree_clean && base_is_ancestor; then
-                echo "==> Codex completed conflict rebase; pushing --force-with-lease"
+                echo "==> agent completed conflict rebase; pushing --force-with-lease"
                 git -C "${WORKTREE}" push --force-with-lease origin "${BRANCH}"
                 remove_label "${REPO}" "${NUM}" "blocked"
-                gh pr comment "${NUM}" -R "${REPO}" --body "Auto-rebase onto \`${BASE_REF}\` hit conflicts; Codex resolved them and pushed \`${BRANCH}\`. Waiting for CI." >/dev/null 2>&1 || true
+                gh pr comment "${NUM}" -R "${REPO}" --body "Auto-rebase onto \`${BASE_REF}\` hit conflicts; the agent chain resolved them and pushed \`${BRANCH}\`. Waiting for CI." >/dev/null 2>&1 || true
                 exit 0
             fi
 
             if rebase_in_progress; then
                 git -C "${WORKTREE}" rebase --abort || true
             fi
-            block_rebase_conflict "Auto-rebase onto \`${BASE_REF}\` hit conflicts. Codex attempted resolution but did not leave a clean worktree with \`origin/${BASE_REF}\` in \`${BRANCH}\` history. Needs human resolution."
+            block_rebase_conflict "Auto-rebase onto \`${BASE_REF}\` hit conflicts. The agent chain attempted resolution but did not leave a clean worktree with \`origin/${BASE_REF}\` in \`${BRANCH}\` history. Needs human resolution."
             exit 5
         fi
     fi
@@ -417,7 +392,7 @@ if [[ "${TRIAGE_ENABLE_DISPATCH:-0}" != "1" ]]; then
     echo "----8<----"
     echo "${PROMPT}"
     echo "---->8----"
-    echo "==> Would call: codex exec --cd ${WORKTREE} <prompt-from-stdin>"
+    echo "==> Would dispatch the configured engineering CLI chain"
     exit 0
 fi
 
@@ -430,16 +405,8 @@ OUT_FILE=$(mktemp)
 echo "==> dispatching to engineering fallback chain"
 cd "${WORKTREE}"
 
-CHAIN=()
-if [[ -f "${CONF_FILE}" ]]; then
-    CHAIN_STR=$(python3 -c "import tomllib, sys; d=tomllib.load(open(sys.argv[1], 'rb')); print(' '.join(d.get('cli_chain', {}).get('engineer', [])))" "${CONF_FILE}" 2>/dev/null || true)
-    if [[ -n "${CHAIN_STR}" ]]; then
-        read -r -a CHAIN <<< "${CHAIN_STR}"
-    fi
-fi
-if [[ ${#CHAIN[@]} -eq 0 ]]; then
-    CHAIN=("codex" "claude" "agy")
-fi
+load_cli_chain "${CONF_FILE}" "engineer" "codex" "claude" "agy"
+CHAIN=("${CLI_CHAIN[@]}")
 
 rc=1
 for i in "${!CHAIN[@]}"; do
@@ -449,35 +416,11 @@ for i in "${!CHAIN[@]}"; do
     
     echo "--> [${STEP}/${TOTAL}] attempting ${TOOL}..."
     
-    case "${TOOL}" in
-        codex)
-            set +e
-            # Codex's default sandbox is read-only, which blocks both git writes (worktree
-            # metadata lives in the parent repo's .git/worktrees/) and gh network access.
-            # The VPS itself is the sandbox here — bypass codex's so the agent can commit,
-            # push, and open the PR.
-            printf '%s\n' "${PROMPT}" | codex exec --dangerously-bypass-approvals-and-sandbox --cd "${WORKTREE}" - 2>&1 | tee "${OUT_FILE}"
-            rc=${PIPESTATUS[1]}
-            set -e
-            ;;
-        claude)
-            set +e
-            printf '%s\n' "${PROMPT}" | claude -p --add-dir "${WORKTREE}" 2>&1 | tee "${OUT_FILE}"
-            rc=${PIPESTATUS[1]}
-            set -e
-            ;;
-        agy)
-            set +e
-            printf '%s\n' "${PROMPT}" | agy --print --dangerously-skip-permissions --add-dir "${WORKTREE}" 2>&1 | tee "${OUT_FILE}"
-            rc=${PIPESTATUS[1]}
-            set -e
-            ;;
-        *)
-            echo "WARN: unknown tool in chain: ${TOOL}" >&2
-            rc=1
-            continue
-            ;;
-    esac
+    if run_cli_tool "${CONF_FILE}" "${TOOL}" "${WORKTREE}" "${PROMPT}" "${OUT_FILE}"; then
+        rc=0
+    else
+        rc=$?
+    fi
     
     echo "--> ${TOOL} exit=${rc}"
     
@@ -486,8 +429,8 @@ for i in "${!CHAIN[@]}"; do
     fi
     
     if [[ ${rc} -ne 0 ]]; then
-        if (( STEP < TOTAL )) && grep -Eqi "limit|quota|429|too many requests|cooldown|overloaded|throttl" "${OUT_FILE}"; then
-            echo "--> [${STEP}/${TOTAL}] ${TOOL} reported limit exhaustion. falling back..."
+        if (( STEP < TOTAL )) && { [[ ${rc} -eq 127 ]] || grep -Eqi "limit|quota|429|too many requests|cooldown|overloaded|throttl" "${OUT_FILE}"; }; then
+            echo "--> [${STEP}/${TOTAL}] ${TOOL} unavailable or rate-limited. falling back..."
             continue
         fi
         break

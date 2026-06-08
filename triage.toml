@@ -16,9 +16,17 @@ lock_ttl_hours = 2
 
 [cli_chain]
 # Order of tool CLI execution to fallback on errors (e.g. rate limits)
-engineer = ["codex", "claude", "agy"]
-review   = ["claude", "codex", "agy"]
-rebase   = ["claude", "agy", "codex"]
+engineer = ["codex", "claude", "kiro", "agy"]
+review   = ["claude", "codex", "kiro", "agy"]
+rebase   = ["claude", "kiro", "agy", "codex"]
+
+# Built-in definitions exist for codex, claude, agy, and kiro. Override one
+# or define another CLI here. Arguments are passed directly without shell
+# evaluation; {worktree} is replaced with the active checkout path.
+[cli_tools.kiro]
+command = "kiro-cli"
+args = ["chat", "--no-interactive", "--trust-all-tools"]
+prompt_mode = "arg" # "arg" appends the prompt; "stdin" pipes it
 
 # List of repositories to monitor
 [[repos]]

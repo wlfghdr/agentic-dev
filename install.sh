@@ -11,7 +11,7 @@
 #   systemctl status triage-tick.timer
 #   /srv/agentic-dev/bin/tick.sh   # manual dry-run
 #
-# Real Codex/Claude/AGY dispatch is controlled by versioned drop-ins under
+# Real agent CLI dispatch is controlled by versioned drop-ins under
 # systemd/triage-tick.service.d/. The production override (dispatch.conf)
 # sets TRIAGE_ENABLE_DISPATCH=1 and is installed automatically by this script.
 # To temporarily disable on a host, either remove the drop-in by hand
@@ -46,7 +46,7 @@ else
 fi
 
 # scripts (compiled with dynamic path substitutions)
-for script in detect.py tick.sh engineer.sh review.sh merge.sh; do
+for script in detect.py tick.sh engineer.sh review.sh merge.sh cli_dispatch.sh; do
     sed "s|/srv/agentic-dev|${TRIAGE_DIR}|g" "${REPO_DIR}/scripts/${script}" > "/tmp/${script}"
     install -m 0755 "/tmp/${script}" "${TRIAGE_DIR}/bin/${script}"
     rm -f "/tmp/${script}"

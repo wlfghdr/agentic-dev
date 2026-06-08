@@ -41,8 +41,8 @@ In a mature agentic organization:
         │                 │
         ▼                 ▼
  ┌─────────────┐   ┌─────────────┐
- │  Codex/     │   │   Claude/   │ (LLM execution chains)
- │  Claude/AGY │   │  Codex/AGY  │
+ │ Codex/Kiro/ │   │ Claude/Kiro/│ (LLM execution chains)
+ │ Claude/AGY  │   │ Codex/AGY   │
  └──────┬──────┘   └──────┬──────┘
         │                 │
         ▼                 ▼
@@ -86,13 +86,36 @@ open_pr_cap_per_repo = 3    # Cap open PRs per repo to match human approval band
 lock_ttl_hours = 2          # TTL for stale locks
 
 [cli_chain]
-engineer = ["codex", "claude", "agy"]  # Fallback chain for writing code
-review   = ["claude", "codex", "agy"]  # Fallback chain for code reviews
-rebase   = ["claude", "agy", "codex"]  # Fallback chain for conflict resolution
+engineer = ["codex", "claude", "kiro", "agy"]  # Writing code
+review   = ["claude", "codex", "kiro", "agy"]  # Code reviews
+rebase   = ["claude", "kiro", "agy", "codex"]  # Conflict resolution
+
+[cli_tools.kiro]
+command = "kiro-cli"
+args = ["chat", "--no-interactive", "--trust-all-tools"]
+prompt_mode = "arg"
 
 [[repos]]
 name = "organization/repository-name"
 automerge = true
+```
+
+Built-in command definitions are provided for `codex`, `claude`, `agy`, and
+`kiro`. Any tool named in a chain can be configured under `[cli_tools.NAME]`:
+
+- `command`: executable name or path.
+- `args`: argument array. Each `{worktree}` token is replaced with the checkout
+  path without shell evaluation.
+- `prompt_mode`: `stdin` to pipe the prompt, or `arg` to append it as the final
+  argument.
+
+For example, a custom agent CLI can be added without changing the scripts:
+
+```toml
+[cli_tools.my-agent]
+command = "/opt/agents/my-agent"
+args = ["run", "--workspace", "{worktree}", "--auto-approve"]
+prompt_mode = "stdin"
 ```
 
 ---
