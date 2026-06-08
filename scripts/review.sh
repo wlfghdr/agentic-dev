@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # scripts/review.sh REPO PR_NUMBER
-# Spawn Claude CLI to review a PR. Honors TRIAGE_ENABLE_DISPATCH=1.
+# Spawn an agent CLI to review a PR. Honors TRIAGE_ENABLE_DISPATCH=1.
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=cli_dispatch.sh
+source "${SCRIPT_DIR}/cli_dispatch.sh"
 
 REPO="${1:?repo required}"
 NUM="${2:?pr number required}"
@@ -127,7 +131,7 @@ PROMPT_EOF
 )
 
 if [[ "${TRIAGE_ENABLE_DISPATCH:-0}" != "1" ]]; then
-    echo "==> DRY RUN — would call claude -p with prompt of $(echo "${PROMPT}" | wc -c) bytes"
+    echo "==> DRY RUN — would dispatch configured review CLI chain with prompt of $(echo "${PROMPT}" | wc -c) bytes"
     exit 0
 fi
 
@@ -137,21 +141,10 @@ add_label "${NEEDS_REVIEW_LABEL}"
 
 echo "==> dispatching to review fallback chain"
 cd "${WORKTREE}"
-# Pipe the prompt via stdin. Passing it as a positional arg lets --add-dir
-# swallow it as another directory, and claude exits with "Input must be
-# provided either through stdin or as a prompt argument".
-CLAUDE_OUT=$(mktemp)
+REVIEW_OUT=$(mktemp)
 
-CHAIN=()
-if [[ -f "${CONF_FILE}" ]]; then
-    CHAIN_STR=$(python3 -c "import tomllib, sys; d=tomllib.load(open(sys.argv[1], 'rb')); print(' '.join(d.get('cli_chain', {}).get('review', [])))" "${CONF_FILE}" 2>/dev/null || true)
-    if [[ -n "${CHAIN_STR}" ]]; then
-        read -r -a CHAIN <<< "${CHAIN_STR}"
-    fi
-fi
-if [[ ${#CHAIN[@]} -eq 0 ]]; then
-    CHAIN=("claude" "codex" "agy")
-fi
+load_cli_chain "${CONF_FILE}" "review" "claude" "codex" "agy"
+CHAIN=("${CLI_CHAIN[@]}")
 
 rc=1
 for i in "${!CHAIN[@]}"; do
@@ -161,31 +154,11 @@ for i in "${!CHAIN[@]}"; do
     
     echo "--> [${STEP}/${TOTAL}] attempting ${TOOL}..."
     
-    case "${TOOL}" in
-        codex)
-            set +e
-            printf '%s\n' "${PROMPT}" | codex exec --dangerously-bypass-approvals-and-sandbox --cd "${WORKTREE}" - 2>&1 | tee "${CLAUDE_OUT}"
-            rc=${PIPESTATUS[1]}
-            set -e
-            ;;
-        claude)
-            set +e
-            printf '%s\n' "${PROMPT}" | claude -p --add-dir "${WORKTREE}" 2>&1 | tee "${CLAUDE_OUT}"
-            rc=${PIPESTATUS[1]}
-            set -e
-            ;;
-        agy)
-            set +e
-            printf '%s\n' "${PROMPT}" | agy --print --dangerously-skip-permissions --add-dir "${WORKTREE}" 2>&1 | tee "${CLAUDE_OUT}"
-            rc=${PIPESTATUS[1]}
-            set -e
-            ;;
-        *)
-            echo "WARN: unknown tool in chain: ${TOOL}" >&2
-            rc=1
-            continue
-            ;;
-    esac
+    if run_cli_tool "${CONF_FILE}" "${TOOL}" "${WORKTREE}" "${PROMPT}" "${REVIEW_OUT}"; then
+        rc=0
+    else
+        rc=$?
+    fi
     
     echo "--> ${TOOL} exit=${rc}"
     
@@ -194,8 +167,8 @@ for i in "${!CHAIN[@]}"; do
     fi
     
     if [[ ${rc} -ne 0 ]]; then
-        if (( STEP < TOTAL )) && grep -Eqi "limit|quota|429|too many requests|cooldown|overloaded|throttl" "${CLAUDE_OUT}"; then
-            echo "--> [${step}/${total}] ${tool} reported limit exhaustion. falling back..."
+        if (( STEP < TOTAL )) && { [[ ${rc} -eq 127 ]] || grep -Eqi "limit|quota|429|too many requests|cooldown|overloaded|throttl" "${REVIEW_OUT}"; }; then
+            echo "--> [${STEP}/${TOTAL}] ${TOOL} unavailable or rate-limited. falling back..."
             continue
         fi
         break
@@ -203,8 +176,8 @@ for i in "${!CHAIN[@]}"; do
 done
 
 if [[ "${rc}" -eq 0 ]]; then
-    LAST_LINE=$(awk 'NF { line=$0 } END { print line }' "${CLAUDE_OUT}" | sed -E 's/[[:space:]]+$//')
-    echo "==> claude final line: ${LAST_LINE:-<empty>}"
+    LAST_LINE=$(awk 'NF { line=$0 } END { print line }' "${REVIEW_OUT}" | sed -E 's/[[:space:]]+$//')
+    echo "==> agent final line: ${LAST_LINE:-<empty>}"
     
     review_flag="--comment"
     case "${LAST_LINE}" in
@@ -276,7 +249,7 @@ if [[ "${rc}" -eq 0 ]]; then
             ;;
         *)
             echo "FATAL: missing or invalid VERDICT final line" >&2
-            rm -f "${CLAUDE_OUT}"
+            rm -f "${REVIEW_OUT}"
             exit 3
             ;;
     esac
@@ -312,11 +285,11 @@ if [[ "${rc}" -eq 0 ]]; then
                 print lines[i]
             }
         }
-    ' "${CLAUDE_OUT}" > "${CLEANED_OUT}"
+    ' "${REVIEW_OUT}" > "${CLEANED_OUT}"
 
     gh pr review "${NUM}" -R "${REPO}" "${review_flag}" -F "${CLEANED_OUT}" >/dev/null 2>&1 || \
         echo "WARN: failed to submit review to ${REPO}#${NUM}" >&2
     rm -f "${CLEANED_OUT}"
 fi
-rm -f "${CLAUDE_OUT}"
+rm -f "${REVIEW_OUT}"
 exit "${rc}"
