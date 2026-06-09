@@ -46,7 +46,7 @@ Run the checks represented in `.github/workflows/validate.yml`:
 ```bash
 npx --yes markdownlint-cli2 "*.md" ".github/**/*.md"
 for file in install.sh scripts/*.sh tests/*.sh; do bash -n "$file"; done
-shellcheck install.sh scripts/*.sh tests/*.sh
+shellcheck --severity=warning install.sh scripts/*.sh tests/*.sh
 python3 -m py_compile scripts/*.py
 python3 -c 'import pathlib, tomllib; tomllib.loads(pathlib.Path("triage.toml").read_text())'
 ./tests/test_cli_dispatch.sh

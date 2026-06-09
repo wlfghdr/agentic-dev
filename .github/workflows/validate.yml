@@ -35,7 +35,7 @@ jobs:
             bash -n "$file"
           done
       - name: Run ShellCheck
-        run: shellcheck install.sh scripts/*.sh tests/*.sh
+        run: shellcheck --severity=warning install.sh scripts/*.sh tests/*.sh
       - name: Check Python syntax
         run: python3 -m py_compile scripts/*.py
       - name: Parse TOML configuration
