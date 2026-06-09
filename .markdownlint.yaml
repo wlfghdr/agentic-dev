@@ -9,3 +9,6 @@ MD040: false
 
 # GitHub templates may begin with comments or second-level headings.
 MD041: false
+
+# Preserve the existing compact table separator style.
+MD060: false
