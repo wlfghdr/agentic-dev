@@ -7,21 +7,59 @@ load_cli_chain() {
     local chain_name="${2}"
     shift 2
 
-    CLI_CHAIN=()
-    if [[ -f "${config}" ]]; then
-        mapfile -d '' -t CLI_CHAIN < <(
-            python3 - "${config}" "${chain_name}" <<'PY'
-import sys
-import tomllib
+    local py_code
+    py_code='import sys
+try:
+    import tomllib
+except ImportError:
+    try:
+        import tomli as tomllib
+    except ImportError:
+        tomllib = None
 
-with open(sys.argv[1], "rb") as config_file:
-    config = tomllib.load(config_file)
+if tomllib:
+    with open(sys.argv[1], "rb") as config_file:
+        config = tomllib.load(config_file)
+else:
+    import re
+    config = {}
+    current_section = None
+    with open(sys.argv[1], "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            section_match = re.match(r"^\[([^\]]+)\]$", line)
+            if section_match:
+                sect_name = section_match.group(1)
+                parts = [p.strip("\"\x27") for p in sect_name.split(".")]
+                curr = config
+                for p in parts[:-1]:
+                    curr = curr.setdefault(p, {})
+                current_section = curr.setdefault(parts[-1], {})
+                continue
+            kv_match = re.match(r"^([a-zA-Z0-9_\-]+)\s*=\s*(.+)$", line)
+            if kv_match and current_section is not None:
+                key, val = kv_match.group(1), kv_match.group(2).strip()
+                if "#" in val:
+                    val = val.split("#", 1)[0].strip()
+                if val.startswith("[") and val.endswith("]"):
+                    config_val = [x.strip("\"\x27") for x in re.findall(r"\"([^\"]*)\"", val)]
+                elif val.startswith("\"") and val.endswith("\""):
+                    config_val = val[1:-1]
+                else:
+                    config_val = val
+                current_section[key] = config_val
 
 for tool in config.get("cli_chain", {}).get(sys.argv[2], []):
     if isinstance(tool, str):
-        print(tool, end="\0")
-PY
-        )
+        print(tool, end="\x00")'
+
+    CLI_CHAIN=()
+    if [[ -f "${config}" ]]; then
+        while IFS= read -r -d '' item; do
+            CLI_CHAIN+=("$item")
+        done < <(python3 -c "${py_code}" "${config}" "${chain_name}")
     fi
 
     if [[ ${#CLI_CHAIN[@]} -eq 0 ]]; then
@@ -35,13 +73,16 @@ load_cli_command() {
     local tool="${2}"
     local worktree="${3}"
 
-    CLI_COMMAND=()
-    CLI_PROMPT_MODE=""
-    mapfile -d '' -t CLI_COMMAND < <(
-        python3 - "${config}" "${tool}" "${worktree}" <<'PY'
-import os
+    local py_code
+    py_code='import os
 import sys
-import tomllib
+try:
+    import tomllib
+except ImportError:
+    try:
+        import tomli as tomllib
+    except ImportError:
+        tomllib = None
 
 config_path, tool, worktree = sys.argv[1:]
 defaults = {
@@ -80,8 +121,40 @@ defaults = {
 
 configured = {}
 if os.path.isfile(config_path):
-    with open(config_path, "rb") as config_file:
-        configured = tomllib.load(config_file).get("cli_tools", {}).get(tool, {})
+    if tomllib:
+        with open(config_path, "rb") as config_file:
+            configured = tomllib.load(config_file).get("cli_tools", {}).get(tool, {})
+    else:
+        import re
+        config = {}
+        current_section = None
+        with open(config_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                section_match = re.match(r"^\[([^\]]+)\]$", line)
+                if section_match:
+                    sect = section_match.group(1)
+                    parts = [p.strip("\"\x27") for p in sect.split(".")]
+                    curr = config
+                    for p in parts[:-1]:
+                        curr = curr.setdefault(p, {})
+                    current_section = curr.setdefault(parts[-1], {})
+                    continue
+                kv_match = re.match(r"^([a-zA-Z0-9_\-]+)\s*=\s*(.+)$", line)
+                if kv_match and current_section is not None:
+                    key, val = kv_match.group(1), kv_match.group(2).strip()
+                    if "#" in val:
+                        val = val.split("#", 1)[0].strip()
+                    if val.startswith("[") and val.endswith("]"):
+                        config_val = [x.strip("\"\x27") for x in re.findall(r"\"([^\"]*)\"", val)]
+                    elif val.startswith("\"") and val.endswith("\""):
+                        config_val = val[1:-1]
+                    else:
+                        config_val = val
+                    current_section[key] = config_val
+        configured = config.get("cli_tools", {}).get(tool, {})
 
 definition = defaults.get(tool, {}) | configured
 command = definition.get("command", tool)
@@ -92,15 +165,19 @@ if not isinstance(command, str) or not command:
     raise SystemExit(f"cli_tools.{tool}.command must be a non-empty string")
 if not isinstance(args, list) or not all(isinstance(arg, str) for arg in args):
     raise SystemExit(f"cli_tools.{tool}.args must be an array of strings")
-if prompt_mode not in {"stdin", "arg"}:
-    raise SystemExit(f"cli_tools.{tool}.prompt_mode must be 'stdin' or 'arg'")
+if prompt_mode not in ["stdin", "arg"]:
+    raise SystemExit(f"cli_tools.{tool}.prompt_mode must be \"stdin\" or \"arg\"")
 
 values = [prompt_mode, command]
 values.extend(arg.replace("{worktree}", worktree) for arg in args)
 for value in values:
-    print(value, end="\0")
-PY
-    )
+    print(value, end="\x00")'
+
+    CLI_COMMAND=()
+    CLI_PROMPT_MODE=""
+    while IFS= read -r -d '' item; do
+        CLI_COMMAND+=("$item")
+    done < <(python3 -c "${py_code}" "${config}" "${tool}" "${worktree}")
 
     if [[ ${#CLI_COMMAND[@]} -lt 2 ]]; then
         echo "ERROR: failed to load CLI definition for ${tool}" >&2
@@ -124,7 +201,7 @@ run_cli_tool() {
 
     set +e
     if [[ "${CLI_PROMPT_MODE}" == "arg" ]]; then
-        "${CLI_COMMAND[@]}" "${prompt}" 2>&1 | tee "${output_file}"
+        "${CLI_COMMAND[@]}" "${prompt}" < /dev/null 2>&1 | tee "${output_file}"
         rc=${PIPESTATUS[0]}
     else
         printf '%s\n' "${prompt}" | "${CLI_COMMAND[@]}" 2>&1 | tee "${output_file}"

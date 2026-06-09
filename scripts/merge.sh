@@ -9,7 +9,7 @@ NUM="${2:?pr number required}"
 CONF_FILE="${TRIAGE_CONFIG:-${TRIAGE_DIR:-/srv/agentic-dev}/triage.toml}"
 AUTOMERGE="false"
 if [[ -f "${CONF_FILE}" ]]; then
-    AUTOMERGE=$(python3 -c "import tomllib, sys; d=tomllib.load(open(sys.argv[1], 'rb')); print(any(r.get('name') == sys.argv[2] and r.get('automerge', False) for r in d.get('repos', [])))" "${CONF_FILE}" "${REPO}" 2>/dev/null || echo "false")
+    AUTOMERGE=$(python3 "$(dirname "${BASH_SOURCE[0]}")/parse_toml.py" "${CONF_FILE}" "repos.automerge" "${REPO}" 2>/dev/null || echo "false")
 fi
 
 if [[ "${AUTOMERGE}" != "True" && "${AUTOMERGE}" != "true" ]]; then

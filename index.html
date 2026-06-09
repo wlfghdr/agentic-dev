@@ -517,6 +517,18 @@
         .footer-links a:hover {
             color: var(--accent-cyan);
         }
+
+        /* Scroll Reveal */
+        .reveal {
+            opacity: 0;
+            transform: translateY(24px);
+            transition: opacity 0.6s ease, transform 0.6s ease;
+        }
+
+        .reveal.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
     </style>
 </head>
 <body>
@@ -575,7 +587,7 @@
     <!-- The Problem & Solution Split Grid -->
     <div class="container">
         <section id="problem-solution">
-            <div class="section-header">
+            <div class="section-header reveal">
                 <h2 class="section-title">The Challenge & The Solution</h2>
                 <p class="section-subtitle">Scaling multi-agent developer squads without overwhelming human managers.</p>
             </div>
@@ -583,7 +595,7 @@
             <div class="split-grid">
                 <!-- Problems -->
                 <div class="problem-list">
-                    <div class="problem-item">
+                    <div class="problem-item reveal">
                         <div class="problem-icon">
                             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
@@ -594,7 +606,7 @@
                             <p>Without limits, agents work on all open backlog items concurrently, opening dozens of PRs that quickly overwhelm review pipelines and lead to stale code.</p>
                         </div>
                     </div>
-                    <div class="problem-item">
+                    <div class="problem-item reveal">
                         <div class="problem-icon">
                             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/>
@@ -605,7 +617,7 @@
                             <p>Main branches move forward, leaving agent-authored PRs out-of-date or conflicting. Resolving this manually wastes developer cycles.</p>
                         </div>
                     </div>
-                    <div class="problem-item">
+                    <div class="problem-item reveal">
                         <div class="problem-icon">
                             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
@@ -620,7 +632,7 @@
 
                 <!-- Solutions -->
                 <div class="solution-list">
-                    <div class="solution-item">
+                    <div class="solution-item reveal">
                         <div class="solution-icon">
                             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
@@ -631,7 +643,7 @@
                             <p>Enforces configurable limits (e.g. `open_pr_cap_per_repo`) so agents stop creating new PRs once the human review queue is full.</p>
                         </div>
                     </div>
-                    <div class="solution-item">
+                    <div class="solution-item reveal">
                         <div class="solution-icon">
                             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 6H16"/>
@@ -642,7 +654,7 @@
                             <p>Automatically detects PRs behind base branches, attempts clean Git rebases first, and falls back to LLM models to resolve conflicts safely.</p>
                         </div>
                     </div>
-                    <div class="solution-item">
+                    <div class="solution-item reveal">
                         <div class="solution-icon">
                             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
@@ -661,13 +673,13 @@
     <!-- Features Section -->
     <div class="container">
         <section id="features">
-            <div class="section-header">
+            <div class="section-header reveal">
                 <h2 class="section-title">Engineered for Production Ops</h2>
                 <p class="section-subtitle">Designed to operate continuously and safely in background servers.</p>
             </div>
 
             <div class="features-grid">
-                <div class="feature-card">
+                <div class="feature-card reveal">
                     <div class="feature-icon-wrapper">
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <circle cx="12" cy="12" r="10"></circle>
@@ -677,7 +689,7 @@
                     <h3>Deterministic Triage Scanner</h3>
                     <p>Uses local Git and GitHub REST APIs via `detect.py` to identify pending actions. By executing zero LLM calls during scanning, it minimizes token costs and runs instantly every minute.</p>
                 </div>
-                <div class="feature-card">
+                <div class="feature-card reveal">
                     <div class="feature-icon-wrapper">
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
@@ -689,7 +701,7 @@
                     <h3>Parallel Worktree Isolation</h3>
                     <p>Dispatches individual issues to transient systemd service units. Each runner checks out code in an isolated git worktree, preventing workspace pollution and enabling parallel builds.</p>
                 </div>
-                <div class="feature-card">
+                <div class="feature-card reveal">
                     <div class="feature-icon-wrapper">
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
@@ -699,7 +711,7 @@
                     <h3>Test-Gate Verification</h3>
                     <p>Enforces local test and linter execution prior to declaring work complete. If tests fail or code style drops, the issue is kept in progress for fixing or returned to the backlog.</p>
                 </div>
-                <div class="feature-card">
+                <div class="feature-card reveal">
                     <div class="feature-icon-wrapper">
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
@@ -716,27 +728,27 @@
     <!-- Adoption Path Section -->
     <div class="container">
         <section id="adoption">
-            <div class="section-header">
+            <div class="section-header reveal">
                 <h2 class="section-title">The Path to Autonomy</h2>
                 <p class="section-subtitle">How to incrementally introduce agentic development to your repositories.</p>
             </div>
 
             <div class="timeline">
-                <div class="timeline-step">
+                <div class="timeline-step reveal">
                     <div class="step-badge">1</div>
                     <div class="step-content">
                         <h3>Dry Run & Auditing</h3>
                         <p>Configure `TRIAGE_ENABLE_DISPATCH=0` in the service. The scanner will run and log planned actions, locks, and concurrency checks to let you inspect the loop's behavior risk-free.</p>
                     </div>
                 </div>
-                <div class="timeline-step">
+                <div class="timeline-step reveal">
                     <div class="step-badge">2</div>
                     <div class="step-content">
                         <h3>Collaborative Engineering</h3>
                         <p>Enable dispatches, but keep `automerge=false`. The agents will pick up issues assigned to them, open PRs, run code reviews, and write suggestions, but a human retains merge rights.</p>
                     </div>
                 </div>
-                <div class="timeline-step">
+                <div class="timeline-step reveal">
                     <div class="step-badge">3</div>
                     <div class="step-content">
                         <h3>Automated Operations</h3>
@@ -760,6 +772,21 @@
             </div>
         </footer>
     </div>
+
+    <!-- Scripts -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(e => {
+                    if (e.isIntersecting) {
+                        e.target.classList.add('visible');
+                        observer.unobserve(e.target);
+                    }
+                });
+            }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+            document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+        });
+    </script>
 
 </body>
 </html>

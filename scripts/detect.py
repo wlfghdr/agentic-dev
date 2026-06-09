@@ -22,15 +22,73 @@ import sys
 import time
 from pathlib import Path
 from typing import Any
-import tomllib
+
+try:
+    import tomllib
+except ImportError:
+    try:
+        import tomli as tomllib
+    except ImportError:
+        tomllib = None
+
+def parse_simple_toml(file_path: str) -> dict:
+    import re
+    config: dict = {}
+    current_section = None
+    array_sections: dict = {}
+    with open(file_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            array_match = re.match(r"^\[\[([^\]]+)\]\]$", line)
+            if array_match:
+                sect = array_match.group(1)
+                new_table: dict = {}
+                array_sections.setdefault(sect, []).append(new_table)
+                config[sect] = array_sections[sect]
+                current_section = new_table
+                continue
+            section_match = re.match(r"^\[([^\]]+)\]$", line)
+            if section_match:
+                sect = section_match.group(1)
+                parts = sect.split(".")
+                curr = config
+                for p in parts[:-1]:
+                    curr = curr.setdefault(p, {})
+                current_section = curr.setdefault(parts[-1], {})
+                continue
+            kv_match = re.match(r"^([a-zA-Z0-9_\-]+)\s*=\s*(.+)$", line)
+            if kv_match and current_section is not None:
+                key, val = kv_match.group(1), kv_match.group(2).strip()
+                if "#" in val:
+                    val = val.split("#", 1)[0].strip()
+                if val.startswith("[") and val.endswith("]"):
+                    items = []
+                    for item in re.findall(r'"([^"]*)"', val):
+                        items.append(item)
+                    current_section[key] = items
+                elif val.startswith('"') and val.endswith('"'):
+                    current_section[key] = val[1:-1]
+                elif val.lower() in ("true", "false"):
+                    current_section[key] = val.lower() == "true"
+                else:
+                    try:
+                        current_section[key] = int(val)
+                    except ValueError:
+                        current_section[key] = val
+    return config
 
 def load_config() -> dict:
     config_path = os.environ.get("TRIAGE_CONFIG", "/srv/agentic-dev/triage.toml")
     if not os.path.exists(config_path):
         return {}
     try:
-        with open(config_path, "rb") as f:
-            return tomllib.load(f)
+        if tomllib:
+            with open(config_path, "rb") as f:
+                return tomllib.load(f)
+        else:
+            return parse_simple_toml(config_path)
     except Exception as e:
         print(f"[warn] failed to load config at {config_path}: {e}", file=sys.stderr)
         return {}

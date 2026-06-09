@@ -30,8 +30,8 @@ AGENT_LOGIN="${TRIAGE_AGENT_LOGIN:-agent-login}"
 HUMAN_LOGIN="${TRIAGE_HUMAN_LOGIN:-human-login}"
 
 if [[ -f "${CONF_FILE}" ]]; then
-    CONF_AGENT=$(python3 -c "import tomllib, sys; d=tomllib.load(open(sys.argv[1], 'rb')); print(d.get('agent', {}).get('login', ''))" "${CONF_FILE}" 2>/dev/null || true)
-    CONF_HUMAN=$(python3 -c "import tomllib, sys; d=tomllib.load(open(sys.argv[1], 'rb')); print(d.get('agent', {}).get('human_login', ''))" "${CONF_FILE}" 2>/dev/null || true)
+    CONF_AGENT=$(python3 "${SCRIPT_DIR}/parse_toml.py" "${CONF_FILE}" "agent.login" 2>/dev/null || true)
+    CONF_HUMAN=$(python3 "${SCRIPT_DIR}/parse_toml.py" "${CONF_FILE}" "agent.human_login" 2>/dev/null || true)
     if [[ -n "${CONF_AGENT}" ]]; then AGENT_LOGIN="${CONF_AGENT}"; fi
     if [[ -n "${CONF_HUMAN}" ]]; then HUMAN_LOGIN="${CONF_HUMAN}"; fi
 fi

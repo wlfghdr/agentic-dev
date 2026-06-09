@@ -15,9 +15,9 @@ MAX_REVIEW="${TRIAGE_MAX_REVIEW:-2}"
 LOCK_TTL_HOURS="2"
 
 if [[ -f "${CONF_FILE}" ]]; then
-    CONF_MAX_ENG=$(python3 -c "import tomllib, sys; d=tomllib.load(open(sys.argv[1], 'rb')); print(d.get('limits', {}).get('max_engineer', ''))" "${CONF_FILE}" 2>/dev/null || true)
-    CONF_MAX_REV=$(python3 -c "import tomllib, sys; d=tomllib.load(open(sys.argv[1], 'rb')); print(d.get('limits', {}).get('max_review', ''))" "${CONF_FILE}" 2>/dev/null || true)
-    CONF_LOCK_TTL=$(python3 -c "import tomllib, sys; d=tomllib.load(open(sys.argv[1], 'rb')); print(d.get('limits', {}).get('lock_ttl_hours', ''))" "${CONF_FILE}" 2>/dev/null || true)
+    CONF_MAX_ENG=$(python3 "$(dirname "${BASH_SOURCE[0]}")/parse_toml.py" "${CONF_FILE}" "limits.max_engineer" 2>/dev/null || true)
+    CONF_MAX_REV=$(python3 "$(dirname "${BASH_SOURCE[0]}")/parse_toml.py" "${CONF_FILE}" "limits.max_review" 2>/dev/null || true)
+    CONF_LOCK_TTL=$(python3 "$(dirname "${BASH_SOURCE[0]}")/parse_toml.py" "${CONF_FILE}" "limits.lock_ttl_hours" 2>/dev/null || true)
 
     if [[ -n "${CONF_MAX_ENG}" ]]; then MAX_ENGINEER="${CONF_MAX_ENG}"; fi
     if [[ -n "${CONF_MAX_REV}" ]]; then MAX_REVIEW="${CONF_MAX_REV}"; fi
