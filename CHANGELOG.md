@@ -17,11 +17,20 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html): `MA
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-06-10
+
+### Added
+
+- **TOML parser fallback** (`scripts/parse_toml.py`) — pure Python parser fallback to support environments without `tomllib` (like macOS Python 3.9).
+- **CI validation** (`.github/workflows/validate.yml`) — runs regression tests automatically on push and pull requests.
+- **Scroll reveal** in `index.html` — added smooth scroll animations to the landing page.
+
 ### Fixed
 
 - **Python 3.8 compatibility** in `scripts/cli_dispatch.sh` — replaced dict union operator `|` with `.copy()` + `.update()` to prevent TypeError crashes on older environments.
 - **macOS compatibility** in `scripts/tick.sh` — added `get_lock_mtime` to portably handle `stat` differences between Linux and macOS, and added a graceful fallback when `flock` is not installed.
 - **Path substitutions** in `install.sh` — updated default deployment directory to `/srv/wulfai/triage` and enabled compilation of path substitutions inside systemd drop-in configuration files.
+- **Zsh/Bash 3.2 compatibility** in scripts — converted `mapfile` calls to portable `while read` loops to support macOS default shell settings.
 
 ## [0.1.0] — 2026-06-10
 

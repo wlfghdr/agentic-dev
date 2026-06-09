@@ -4,7 +4,7 @@
 > Production-grade dispatching, code generation, conflict resolution, PR verification, and code review for agentic software engineering teams. No LLM calls during detection. Matches agent throughput to human approval bandwidth.
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.1.0-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.2.0-green.svg)](CHANGELOG.md)
 
 **Website:** [wlfghdr.github.io/agentic-dev](https://wlfghdr.github.io/agentic-dev/)
 
