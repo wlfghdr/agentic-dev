@@ -1,0 +1,47 @@
+name: Feature request
+description: Propose an improvement to the engineering triage loop.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe the operational problem or missing capability.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Explain the desired behavior and relevant alternatives.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Detection
+        - Engineering dispatch
+        - Review
+        - Merge automation
+        - Installation or systemd
+        - Configuration
+        - Documentation or governance
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: safety
+    attributes:
+      label: Safety and operational impact
+      description: Note effects on credentials, permissions, concurrency, rollback, or human approval.
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: List observable conditions that would make the request complete.

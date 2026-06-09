@@ -1,0 +1,11 @@
+default: true
+
+# Preserve the existing README's prose wrapping and list layout.
+MD013: false
+MD032: false
+
+# Tree diagrams and generic command output do not have a useful language.
+MD040: false
+
+# GitHub templates may begin with comments or second-level headings.
+MD041: false

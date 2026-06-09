@@ -1,0 +1,17 @@
+# Default ownership
+* @wlfghdr
+
+# Repository automation and governance require maintainer review.
+/.github/ @wlfghdr
+/.markdownlint.yaml @wlfghdr
+/AGENTS.md @wlfghdr
+/CONTRIBUTING.md @wlfghdr
+/LICENSE @wlfghdr
+/NOTICE @wlfghdr
+/SECURITY.md @wlfghdr
+
+# Runtime and deployment paths
+/scripts/ @wlfghdr
+/systemd/ @wlfghdr
+/install.sh @wlfghdr
+/triage.toml @wlfghdr

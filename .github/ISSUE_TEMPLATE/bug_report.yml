@@ -1,0 +1,50 @@
+name: Bug report
+description: Report incorrect or unexpected agentic-dev behavior.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include credentials, tokens, private repository data, or other
+        sensitive information.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the observed behavior and its impact.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Provide the smallest safe set of steps that reproduces the issue.
+      placeholder: |
+        1. Check out commit <sha>
+        2. Configure a test repository
+        3. Run ...
+        4. Observe ...
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system, Python version, Bash version, and gh version.
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant sanitized logs
+      description: Remove secrets, tokens, private URLs, and personal information.
+      render: shell
