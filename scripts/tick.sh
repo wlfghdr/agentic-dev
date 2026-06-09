@@ -34,9 +34,13 @@ mkdir -p "${LOCKS}" "${LOGDIR}"
 # Dispatchers run as independent transient units, so the lock is released
 # as soon as this tick exits — the next 60s tick can start immediately.
 exec 9>"${STATE}/tick.lock"
-if ! flock -n 9; then
-    echo "tick already running, exit" >&2
-    exit 0
+if command -v flock >/dev/null 2>&1; then
+    if ! flock -n 9; then
+        echo "tick already running, exit" >&2
+        exit 0
+    fi
+else
+    echo "WARN: flock not found, skipping concurrency lock" >&2
 fi
 
 count_running() {
@@ -57,6 +61,14 @@ cleanup_stale_locks() {
         fi
     done
     shopt -u nullglob
+}
+
+get_lock_mtime() {
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        stat -f %m "${1}"
+    else
+        stat -c %Y "${1}"
+    fi
 }
 
 {
@@ -101,7 +113,7 @@ cleanup_stale_locks() {
         LOCK="${LOCKS}/${SLUG}.lock"
 
         if [[ -e "${LOCK}" ]]; then
-            AGE=$(( $(date +%s) - $(stat -c %Y "${LOCK}") ))
+            AGE=$(( $(date +%s) - $(get_lock_mtime "${LOCK}") ))
             if [[ "${AGE}" -lt "${LOCK_TTL}" ]]; then
                 echo "skip ${KIND} ${REPO}#${NUM} — locked (age ${AGE}s)"
                 continue

@@ -25,7 +25,7 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TRIAGE_DIR="${TRIAGE_DIR:-/srv/agentic-dev}"
+TRIAGE_DIR="${TRIAGE_DIR:-/srv/wulfai/triage}"
 
 echo "==> install from ${REPO_DIR} to ${TRIAGE_DIR}"
 
@@ -75,7 +75,9 @@ for unit in triage-tick.timer triage-tick.service; do
         repo_files=()
         for f in "${src_dir}"/*.conf; do
             [[ -e "${f}" ]] || continue
-            install -m 0644 "${f}" "${dropin_dir}/$(basename "${f}")"
+            sed "s|/srv/agentic-dev|${TRIAGE_DIR}|g" "${f}" > "/tmp/$(basename "${f}")"
+            install -m 0644 "/tmp/$(basename "${f}")" "${dropin_dir}/$(basename "${f}")"
+            rm -f "/tmp/$(basename "${f}")"
             repo_files+=("$(basename "${f}")")
         done
         # drop stray on-host drop-ins not present in repo

@@ -156,7 +156,8 @@ if os.path.isfile(config_path):
                     current_section[key] = config_val
         configured = config.get("cli_tools", {}).get(tool, {})
 
-definition = defaults.get(tool, {}) | configured
+definition = defaults.get(tool, {}).copy()
+definition.update(configured)
 command = definition.get("command", tool)
 args = definition.get("args", [])
 prompt_mode = definition.get("prompt_mode", "stdin")
