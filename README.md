@@ -1,9 +1,22 @@
-# Agentic Dev: The Engineering Triage Loop
+# agentic-dev
 
-`agentic-dev` is a production-grade, deterministic triage and execution loop designed for agentic software engineering teams. It serves as the **third core component** of the Agentic Enterprise suite, alongside:
-1. **agentic-enterprise**: public organization frameworks, templates, and multi-agent reference models.
-2. **agentic-kb**: layered knowledge base specification and operations (featuring the `/kb` command).
-3. **agentic-dev**: the engineering execution layer that coordinates automated dispatching, code generation, conflict resolution, PR verification, and code review.
+> **Deterministic engineering triage loop.**
+> Production-grade dispatching, code generation, conflict resolution, PR verification, and code review for agentic software engineering teams. No LLM calls during detection. Matches agent throughput to human approval bandwidth.
+
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-v0.1.0-green.svg)](CHANGELOG.md)
+
+**Website:** [wlfghdr.github.io/agentic-dev](https://wlfghdr.github.io/agentic-dev/)
+
+## The agentic-* suite
+
+`agentic-dev` is the **execution layer** of the agentic-* suite — three building blocks for running an agentic organization on Git:
+
+| Repo | Role |
+|------|------|
+| [agentic-enterprise](https://github.com/wlfghdr/agentic-enterprise) | **The operating model** — governance layers, process loops, policies, and templates. Humans decide, agents execute, Git governs. |
+| [agentic-kb](https://github.com/wlfghdr/agentic-kb) | **The knowledge layer** — layered, vendor-neutral knowledge ops via the `/kb` command. |
+| [agentic-dev](https://github.com/wlfghdr/agentic-dev) | **The execution layer** — deterministic engineering triage and execution loop (this repo). |
 
 ---
 
@@ -58,6 +71,7 @@ In a mature agentic organization:
 - `scripts/`
   - `detect.py`: Deterministically scans watched repositories to identify issues assigned to the agent, PRs needing review, and PRs falling behind. *No LLM calls are made here.*
   - `tick.sh`: The orchestrator timer script. Acquires item locks, checks concurrency limits, and dispatches tasks to transient `systemd-run` units for safe, parallel execution.
+  - `cli_dispatch.sh`: Shared CLI-chain configuration and execution helpers — resolves the configured agent CLI chain and runs prompts against it.
   - `engineer.sh`: Sets up repository worktrees, runs the designated agent chain to write code/resolve conflicts, and pushes results or opens a PR.
   - `review.sh`: Pulls the code, spawns the reviewer agent chain, runs local verification tests, and posts the review comment with a final `VERDICT`.
   - `merge.sh`: Automatically merges approved PRs if `automerge` is enabled for the repository.
@@ -66,6 +80,8 @@ In a mature agentic organization:
   - `triage-tick.timer`: Near-realtime timer that triggers the service every 60 seconds.
 - `logrotate/`
   - `agentic-triage`: Log rotation configuration to prevent disk space issues on the VPS.
+- `tests/`
+  - `test_cli_dispatch.sh`: Regression tests for the CLI-chain dispatch helpers.
 - `triage.toml`: Main configuration file defining the triage agent name, human fallback, limits, execution chains, and watched repositories.
 
 ---
@@ -122,6 +138,8 @@ prompt_mode = "stdin"
 
 ## Installation
 
+**Prerequisites:** Linux with systemd, Python ≥ 3.11 (`tomllib`), `git`, and an authenticated `gh` CLI, plus the agent CLIs you configure in your chains.
+
 Run the installation script as root on your VPS or orchestrator host:
 
 ```bash
@@ -135,3 +153,17 @@ This will:
 4. Enable the systemd timer.
 
 To enable active dispatches in production, install the systemd drop-in override (set `TRIAGE_ENABLE_DISPATCH=1` and configure `HOME=/root` so the `gh` CLI can authenticate). See `systemd/triage-tick.service.d/dispatch.conf`.
+
+---
+
+## Contributing
+
+Issues and PRs welcome. Keep changes focused: this repo is a deterministic loop, not a framework — speculative features belong in [agentic-enterprise](https://github.com/wlfghdr/agentic-enterprise) discussions first.
+
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE).
+
+## Changelog
+
+Release history lives in [`CHANGELOG.md`](CHANGELOG.md).
