@@ -30,5 +30,6 @@ First versioned release of the deterministic engineering triage loop.
 - **Systemd units** (`systemd/`) — 60-second near-realtime timer, service, and dispatch drop-in override.
 - **Log rotation** (`logrotate/agentic-triage`) and `install.sh` for VPS installation.
 - **Regression tests** (`tests/test_cli_dispatch.sh`).
+- **Release automation** — new `.github/workflows/release.yml`: pushing a `v*` tag creates the matching GitHub release with notes extracted from the changelog. Same workflow ships across agentic-enterprise, agentic-kb, and agentic-dev for a consistent suite release process.
 - **LICENSE** (Apache-2.0), `VERSION`, and this changelog.
 - **Website** (`index.html`) — GitHub Pages one-pager positioning agentic-dev as the execution layer of the agentic-* suite, with cross-references to [agentic-enterprise](https://github.com/wlfghdr/agentic-enterprise) and [agentic-kb](https://github.com/wlfghdr/agentic-kb).
