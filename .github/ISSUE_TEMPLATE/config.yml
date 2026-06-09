@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or design discussion
+    url: https://github.com/wlfghdr/agentic-dev/discussions
+    about: Use Discussions for usage questions and design exploration.
+  - name: Security vulnerability
+    url: https://github.com/wlfghdr/agentic-dev/security/advisories/new
+    about: Report suspected vulnerabilities privately.
