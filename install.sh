@@ -25,7 +25,7 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TRIAGE_DIR="${TRIAGE_DIR:-/srv/wulfai/triage}"
+TRIAGE_DIR="${TRIAGE_DIR:-/srv/agentic-dev}"
 
 echo "==> install from ${REPO_DIR} to ${TRIAGE_DIR}"
 
