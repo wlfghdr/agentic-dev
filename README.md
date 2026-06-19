@@ -43,7 +43,7 @@ In a mature agentic organization:
                  │
                  ▼
           ┌─────────────┐
-          │   tick.sh   │ (Spawns parallel transient systemd jobs)
+          │   tick.sh   │ (Dispatches parallel transient systemd jobs)
           └──────┬──────┘
                  │
         ┌────────┴────────┐
@@ -60,7 +60,7 @@ In a mature agentic organization:
         │                 │
         ▼                 ▼
  ┌─────────────┐   ┌─────────────┐
- │ PR Created  │   │   Verdict   │ (merge-ready / needs-fix)
+ │ PR Created  │   │   Verdict   │ (merge-ready / needs-fix / blocked)
  └─────────────┘   └─────────────┘
 ```
 
@@ -73,7 +73,7 @@ In a mature agentic organization:
   - `tick.sh`: The orchestrator timer script. Acquires item locks, checks concurrency limits, and dispatches tasks to transient `systemd-run` units for safe, parallel execution.
   - `cli_dispatch.sh`: Shared CLI-chain configuration and execution helpers — resolves the configured agent CLI chain and runs prompts against it.
   - `engineer.sh`: Sets up repository worktrees, runs the designated agent chain to write code/resolve conflicts, and pushes results or opens a PR.
-  - `review.sh`: Pulls the code, spawns the reviewer agent chain, runs local verification tests, and posts the review comment with a final `VERDICT`.
+  - `review.sh`: Pulls the code, dispatches the reviewer agent chain, runs local verification tests, and posts the review comment with a final `VERDICT`.
   - `merge.sh`: Automatically merges approved PRs if `automerge` is enabled for the repository.
 - `systemd/`
   - `triage-tick.service`: Systemd service to run the orchestrator tick.
@@ -133,6 +133,23 @@ command = "/opt/agents/my-agent"
 args = ["run", "--workspace", "{worktree}", "--auto-approve"]
 prompt_mode = "stdin"
 ```
+
+---
+
+## Workflow labels
+
+The loop coordinates through a small set of GitHub labels. Two are **human control points** you can apply by hand; the rest are **agent-managed** workflow state. Labels are the source of truth for what the loop will and will not pick up.
+
+| Label | Set by | Meaning / effect |
+|-------|--------|------------------|
+| `do-not-work` | human | `detect.py` skips the issue entirely — use it to pause the agent on a specific item. |
+| `blocked` | human or `review.sh` | Halts work: blocked issues are skipped, and a `VERDICT: blocked` review marks the PR for human attention. |
+| `in-progress` | agent | An engineer dispatch is actively working the issue or PR. |
+| `needs-review` | agent | PR is awaiting a review dispatch. |
+| `changes-requested` | `review.sh` | Review verdict `needs-fix` — the engineer chain will revise on the next tick. |
+| `approved` | `review.sh` | Review verdict `merge-ready` — PR is handed to the human (and auto-merged if `automerge` is enabled for the repo). |
+
+The three review verdicts emitted by `review.sh` map onto labels as: `merge-ready` → `approved`, `needs-fix` → `changes-requested`, `blocked` → `blocked`.
 
 ---
 

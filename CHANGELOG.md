@@ -17,6 +17,15 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html): `MA
 
 ## [Unreleased]
 
+### Added
+
+- **Workflow labels reference** in `README.md` — documented the full label model the loop coordinates through (`do-not-work`, `blocked`, `in-progress`, `needs-review`, `changes-requested`, `approved`), separating the two human control points from agent-managed state, and how the three review verdicts (`merge-ready` / `needs-fix` / `blocked`) map onto labels. The `do-not-work` and `blocked` control points were previously only discoverable in `detect.py` source.
+
+### Fixed
+
+- **Review verdict / dispatch wording consistency** in `README.md` — the flow diagram now lists all three review verdicts (`merge-ready` / `needs-fix` / `blocked`); the third (`blocked`) was implemented in `review.sh` but missing from the docs. Also standardized "spawns" → "dispatches" so the README matches the "dispatch" vocabulary used throughout the scripts.
+- **Default deployment path consistency** in `install.sh` — the default `TRIAGE_DIR` now resolves to `/srv/agentic-dev`, matching the in-repo script defaults (`tick.sh`, `review.sh`, `merge.sh`), the systemd unit `ExecStart`, the `sed` substitution token, the README, and `install.sh`'s own header comments. Previously the installer relocated to a brand-specific `/srv/wulfai/triage`, which contradicted every other reference and leaked a vendor name into a vendor-neutral default. Override with the `TRIAGE_DIR` environment variable as before.
+
 ## [0.2.0] — 2026-06-10
 
 ### Added
