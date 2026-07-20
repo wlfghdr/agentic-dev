@@ -46,7 +46,7 @@ else
 fi
 
 # scripts (compiled with dynamic path substitutions)
-for script in detect.py tick.sh engineer.sh review.sh merge.sh cli_dispatch.sh; do
+for script in detect.py tick.sh engineer.sh review.sh merge.sh cli_dispatch.sh parse_toml.py; do
     sed "s|/srv/agentic-dev|${TRIAGE_DIR}|g" "${REPO_DIR}/scripts/${script}" > "/tmp/${script}"
     install -m 0755 "/tmp/${script}" "${TRIAGE_DIR}/bin/${script}"
     rm -f "/tmp/${script}"
