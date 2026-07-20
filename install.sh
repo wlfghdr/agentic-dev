@@ -60,8 +60,8 @@ render_template() {
     # render_template SOURCE DEST
     local repos_dir_escaped
     local worktrees_dir_escaped
-    repos_dir_escaped="$(printf '%s' "${TRIAGE_REPOS_DIR}" | sed 's/[\\&|]/\\&/g')"
-    worktrees_dir_escaped="$(printf '%s' "${TRIAGE_WORKTREES_DIR}" | sed 's/[\\&|]/\\&/g')"
+    repos_dir_escaped="$(printf '%s' "${TRIAGE_REPOS_DIR}" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/%/%%/g' -e 's/[&|]/\\&/g')"
+    worktrees_dir_escaped="$(printf '%s' "${TRIAGE_WORKTREES_DIR}" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/%/%%/g' -e 's/[&|]/\\&/g')"
     sed \
         -e "s|/srv/agentic-dev|${TRIAGE_DIR}|g" \
         -e "s|@TRIAGE_REPOS_DIR@|${repos_dir_escaped}|g" \

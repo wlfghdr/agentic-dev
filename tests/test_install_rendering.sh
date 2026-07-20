@@ -20,15 +20,15 @@ TRIAGE_WORKTREES_DIR="${TMPDIR_TEST}/acme|partners/work trees"
 template="${TMPDIR_TEST}/dispatch.conf.in"
 rendered="${TMPDIR_TEST}/dispatch.conf"
 cat > "${template}" <<'TEMPLATE'
-Environment=TRIAGE_REPOS_DIR=@TRIAGE_REPOS_DIR@
-Environment=TRIAGE_WORKTREES_DIR=@TRIAGE_WORKTREES_DIR@
+Environment="TRIAGE_REPOS_DIR=@TRIAGE_REPOS_DIR@"
+Environment="TRIAGE_WORKTREES_DIR=@TRIAGE_WORKTREES_DIR@"
 Environment=TRIAGE_DIR=/srv/agentic-dev
 TEMPLATE
 
 render_template "${template}" "${rendered}"
 
-grep -Fx "Environment=TRIAGE_REPOS_DIR=${TRIAGE_REPOS_DIR}" "${rendered}"
-grep -Fx "Environment=TRIAGE_WORKTREES_DIR=${TRIAGE_WORKTREES_DIR}" "${rendered}"
+grep -Fx "Environment=\"TRIAGE_REPOS_DIR=${TRIAGE_REPOS_DIR}\"" "${rendered}"
+grep -Fx "Environment=\"TRIAGE_WORKTREES_DIR=${TRIAGE_WORKTREES_DIR}\"" "${rendered}"
 grep -Fx "Environment=TRIAGE_DIR=${TRIAGE_DIR}" "${rendered}"
 
 echo "install rendering tests passed"
