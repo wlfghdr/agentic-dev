@@ -10,8 +10,10 @@ TRIAGE_REPOS_DIR="${TMPDIR_TEST}/acme&partners/repos" \
 TRIAGE_WORKTREES_DIR="${TMPDIR_TEST}/acme|partners/work trees" \
 bash -n "${ROOT}/install.sh"
 
-source_lines=$(sed -n '/^render_template()/,/^}/p' "${ROOT}/install.sh")
-eval "${source_lines}"
+render_helper="${TMPDIR_TEST}/render_template.sh"
+sed -n '/^render_template()/,/^}/p' "${ROOT}/install.sh" > "${render_helper}"
+# shellcheck source=/dev/null
+source "${render_helper}"
 
 TRIAGE_DIR="${TMPDIR_TEST}/triage"
 TRIAGE_REPOS_DIR="${TMPDIR_TEST}/acme&partners/repos"
