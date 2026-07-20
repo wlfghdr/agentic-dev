@@ -167,7 +167,7 @@ for i in "${!CHAIN[@]}"; do
     fi
     
     if [[ ${rc} -ne 0 ]]; then
-        if (( STEP < TOTAL )) && { [[ ${rc} -eq 127 ]] || grep -Eqi "auth|authenticate|oauth|permission|expired|limit|quota|429|too many requests|cooldown|overloaded|throttl" "${REVIEW_OUT}"; }; then
+        if (( STEP < TOTAL )) && { [[ ${rc} -eq 127 ]] || cli_error_allows_fallback "${REVIEW_OUT}"; }; then
             echo "--> [${STEP}/${TOTAL}] ${TOOL} unavailable or rate-limited. falling back..."
             continue
         fi

@@ -217,7 +217,7 @@ ${PR_JSON}
         fi
         
         if [[ ${rc} -ne 0 ]]; then
-            if (( step < total )) && { [[ ${rc} -eq 127 ]] || grep -Eqi "auth|authenticate|oauth|permission|expired|limit|quota|429|too many requests|cooldown|overloaded|throttl" "${out_file}"; }; then
+            if (( step < total )) && { [[ ${rc} -eq 127 ]] || cli_error_allows_fallback "${out_file}"; }; then
                 echo "--> [${step}/${total}] ${tool} unavailable or rate-limited. falling back..."
                 continue
             fi
@@ -429,7 +429,7 @@ for i in "${!CHAIN[@]}"; do
     fi
     
     if [[ ${rc} -ne 0 ]]; then
-        if (( STEP < TOTAL )) && { [[ ${rc} -eq 127 ]] || grep -Eqi "auth|authenticate|oauth|permission|expired|limit|quota|429|too many requests|cooldown|overloaded|throttl" "${OUT_FILE}"; }; then
+        if (( STEP < TOTAL )) && { [[ ${rc} -eq 127 ]] || cli_error_allows_fallback "${OUT_FILE}"; }; then
             echo "--> [${STEP}/${TOTAL}] ${TOOL} unavailable or rate-limited. falling back..."
             continue
         fi

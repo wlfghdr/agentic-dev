@@ -77,4 +77,26 @@ else
     [[ $? -eq 42 ]]
 fi
 
+for message in \
+    'Authentication required: run gh auth login' \
+    'OAuth token expired' \
+    'API key is invalid' \
+    'HTTP 401 Unauthorized' \
+    'quota exceeded'; do
+    printf '%s\n' "${message}" > "${OUTPUT}"
+    cli_error_allows_fallback "${OUTPUT}"
+done
+
+for message in \
+    'authorization tests failed' \
+    'permission check failed for the generated file' \
+    'the TLS certificate expired yesterday' \
+    'task failed with exit status 1'; do
+    printf '%s\n' "${message}" > "${OUTPUT}"
+    if cli_error_allows_fallback "${OUTPUT}"; then
+        echo "task failure incorrectly allowed fallback: ${message}" >&2
+        exit 1
+    fi
+done
+
 echo "cli dispatch tests passed"
