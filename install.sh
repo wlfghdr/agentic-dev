@@ -26,6 +26,9 @@ fi
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TRIAGE_DIR="${TRIAGE_DIR:-/srv/agentic-dev}"
+TRIAGE_PARENT="$(dirname "${TRIAGE_DIR}")"
+TRIAGE_REPOS_DIR="${TRIAGE_REPOS_DIR:-${TRIAGE_PARENT}/repos}"
+TRIAGE_WORKTREES_DIR="${TRIAGE_WORKTREES_DIR:-${TRIAGE_PARENT}/worktrees}"
 
 echo "==> install from ${REPO_DIR} to ${TRIAGE_DIR}"
 
@@ -53,8 +56,17 @@ for script in detect.py tick.sh engineer.sh review.sh merge.sh cli_dispatch.sh p
 done
 install -m 0644 "${REPO_DIR}/README.md"           "${TRIAGE_DIR}/README.md"
 
+render_template() {
+    # render_template SOURCE DEST
+    sed \
+        -e "s|/srv/agentic-dev|${TRIAGE_DIR}|g" \
+        -e "s|@TRIAGE_REPOS_DIR@|${TRIAGE_REPOS_DIR}|g" \
+        -e "s|@TRIAGE_WORKTREES_DIR@|${TRIAGE_WORKTREES_DIR}|g" \
+        "${1}" > "${2}"
+}
+
 # systemd units
-sed "s|/srv/agentic-dev|${TRIAGE_DIR}|g" "${REPO_DIR}/systemd/triage-tick.service" > /tmp/triage-tick.service
+render_template "${REPO_DIR}/systemd/triage-tick.service" /tmp/triage-tick.service
 install -m 0644 /tmp/triage-tick.service /etc/systemd/system/triage-tick.service
 rm -f /tmp/triage-tick.service
 install -m 0644 "${REPO_DIR}/systemd/triage-tick.timer"   /etc/systemd/system/triage-tick.timer
@@ -75,7 +87,7 @@ for unit in triage-tick.timer triage-tick.service; do
         repo_files=()
         for f in "${src_dir}"/*.conf; do
             [[ -e "${f}" ]] || continue
-            sed "s|/srv/agentic-dev|${TRIAGE_DIR}|g" "${f}" > "/tmp/$(basename "${f}")"
+            render_template "${f}" "/tmp/$(basename "${f}")"
             install -m 0644 "/tmp/$(basename "${f}")" "${dropin_dir}/$(basename "${f}")"
             rm -f "/tmp/$(basename "${f}")"
             repo_files+=("$(basename "${f}")")
