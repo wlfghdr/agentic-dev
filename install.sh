@@ -58,10 +58,14 @@ install -m 0644 "${REPO_DIR}/README.md"           "${TRIAGE_DIR}/README.md"
 
 render_template() {
     # render_template SOURCE DEST
+    local repos_dir_escaped
+    local worktrees_dir_escaped
+    repos_dir_escaped="$(printf '%s' "${TRIAGE_REPOS_DIR}" | sed 's/[\\&|]/\\&/g')"
+    worktrees_dir_escaped="$(printf '%s' "${TRIAGE_WORKTREES_DIR}" | sed 's/[\\&|]/\\&/g')"
     sed \
         -e "s|/srv/agentic-dev|${TRIAGE_DIR}|g" \
-        -e "s|@TRIAGE_REPOS_DIR@|${TRIAGE_REPOS_DIR}|g" \
-        -e "s|@TRIAGE_WORKTREES_DIR@|${TRIAGE_WORKTREES_DIR}|g" \
+        -e "s|@TRIAGE_REPOS_DIR@|${repos_dir_escaped}|g" \
+        -e "s|@TRIAGE_WORKTREES_DIR@|${worktrees_dir_escaped}|g" \
         "${1}" > "${2}"
 }
 
