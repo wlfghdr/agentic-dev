@@ -20,6 +20,7 @@ LOGDIR="${TRIAGE_DIR}/logs"
 REPO_NAME="${REPO##*/}"
 LOG="${LOGDIR}/$(date -u +%Y%m%d-%H%M%S)-dependabot-${REPO_NAME}-${NUM}.log"
 DEPENDABOT_LOGIN="${TRIAGE_DEPENDABOT_LOGIN:-dependabot[bot]}"
+DEPENDABOT_APP_LOGIN="${TRIAGE_DEPENDABOT_APP_LOGIN:-app/dependabot}"
 
 mkdir -p "${LOGDIR}"
 exec >"${LOG}" 2>&1
@@ -49,7 +50,7 @@ fi
 
 PR_JSON="$(gh pr view "${NUM}" -R "${REPO}" --json author,isDraft,mergeStateStatus,mergeable,statusCheckRollup,labels,title,url,headRefOid)"
 AUTHOR="$(echo "${PR_JSON}" | jq -r '.author.login // ""')"
-if [[ "${AUTHOR}" != "${DEPENDABOT_LOGIN}" ]]; then
+if [[ "${AUTHOR}" != "${DEPENDABOT_LOGIN}" && "${AUTHOR}" != "${DEPENDABOT_APP_LOGIN}" ]]; then
     echo "FATAL: refusing to merge non-Dependabot PR authored by ${AUTHOR}" >&2
     exit 3
 fi

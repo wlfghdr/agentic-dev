@@ -40,12 +40,20 @@ JSON
 {"author":{"login":"dependabot[bot]"},"isDraft":false,"mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}],"labels":[],"title":"build(deps): bump lib-e","url":"https://example.invalid/pr/6","headRefOid":"abc123"}
 JSON
         ;;
+    pr\ view\ 7\ -R\ acme/app\ --json*)
+        cat <<'JSON'
+{"author":{"login":"app/dependabot"},"isDraft":false,"mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}],"labels":[],"title":"build(deps): bump lib-f","url":"https://example.invalid/pr/7","headRefOid":"abc123"}
+JSON
+        ;;
     pr\ merge\ 1\ -R\ acme/app\ --squash\ --delete-branch\ --match-head-commit\ abc123)
         printf '%s\n' "$*" >> "${GH_MERGE_LOG}"
         ;;
     pr\ merge\ 6\ -R\ acme/app\ --squash\ --delete-branch\ --match-head-commit\ abc123)
         printf '%s\n' "$*" >> "${GH_MERGE_LOG}"
         exit 1
+        ;;
+    pr\ merge\ 7\ -R\ acme/app\ --squash\ --delete-branch\ --match-head-commit\ abc123)
+        printf '%s\n' "$*" >> "${GH_MERGE_LOG}"
         ;;
     *)
         echo "unexpected gh args: $*" >&2
@@ -95,9 +103,12 @@ if grep -q -- '--auto' "${GH_MERGE_LOG}"; then
     exit 1
 fi
 
+"${ROOT}/scripts/dependabot_merge.sh" acme/app 7
+[[ "$(wc -l < "${GH_MERGE_LOG}")" == "3" ]]
+
 export TRIAGE_CONFIG="${TMPDIR_TEST}/missing.toml"
 "${ROOT}/scripts/dependabot_merge.sh" acme/app 1
-[[ "$(wc -l < "${GH_MERGE_LOG}")" == "2" ]]
+[[ "$(wc -l < "${GH_MERGE_LOG}")" == "3" ]]
 
 cat > "${TMPDIR_TEST}/global-disabled.toml" <<'TOML'
 [dependabot]
@@ -109,7 +120,7 @@ dependabot_automerge = true
 TOML
 export TRIAGE_CONFIG="${TMPDIR_TEST}/global-disabled.toml"
 "${ROOT}/scripts/dependabot_merge.sh" acme/app 1
-[[ "$(wc -l < "${GH_MERGE_LOG}")" == "2" ]]
+[[ "$(wc -l < "${GH_MERGE_LOG}")" == "3" ]]
 
 cat > "${TMPDIR_TEST}/string-flags.toml" <<'TOML'
 [dependabot]
@@ -121,6 +132,6 @@ dependabot_automerge = "true"
 TOML
 export TRIAGE_CONFIG="${TMPDIR_TEST}/string-flags.toml"
 "${ROOT}/scripts/dependabot_merge.sh" acme/app 1
-[[ "$(wc -l < "${GH_MERGE_LOG}")" == "2" ]]
+[[ "$(wc -l < "${GH_MERGE_LOG}")" == "3" ]]
 
 echo "dependabot merge tests passed"
