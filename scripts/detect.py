@@ -504,7 +504,7 @@ def detect_dependabot_items(repo: str) -> list[dict]:
     """Open Dependabot PRs that can be handled without a code-review LLM call."""
     if not config_bool("dependabot", "enabled", False):
         return []
-    if not repo_bool(repo, "dependabot_automerge", True):
+    if not repo_bool(repo, "dependabot_automerge", False):
         return []
 
     prs = gh([
@@ -572,7 +572,7 @@ def detect_release_items(repo: str) -> list[dict]:
     """Find repos due for a daily deterministic release."""
     if not config_bool("release", "enabled", False):
         return []
-    if not repo_bool(repo, "release", True):
+    if not repo_bool(repo, "release", False):
         return []
 
     mark_live_lock("release", repo, "daily")

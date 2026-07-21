@@ -8,6 +8,7 @@ REPO="${1:?repo required}"
 REPO_NAME="${REPO##*/}"
 
 TRIAGE_DIR="${TRIAGE_DIR:-/srv/agentic-dev}"
+CONF_FILE="${TRIAGE_CONFIG:-${TRIAGE_DIR}/triage.toml}"
 LOCAL_REPO="${TRIAGE_REPOS_DIR:-/srv/agentic-dev/../repos}/${REPO_NAME}"
 STATE_DIR="${TRIAGE_STATE_DIR:-${TRIAGE_DIR}/state}"
 LOGDIR="${TRIAGE_DIR}/logs"
@@ -28,6 +29,15 @@ fi
 if [[ ! -d "${LOCAL_REPO}/.git" ]]; then
     echo "FATAL: local repo not found at ${LOCAL_REPO}" >&2
     exit 2
+fi
+
+release_enabled="false"
+if [[ -f "${CONF_FILE}" ]]; then
+    release_enabled="$(python3 "$(dirname "${BASH_SOURCE[0]}")/parse_toml.py" "${CONF_FILE}" "repos.release" "${REPO}" 2>/dev/null || echo "false")"
+fi
+if [[ "${release_enabled}" != "True" && "${release_enabled}" != "true" ]]; then
+    echo "==> releases disabled for ${REPO}"
+    exit 0
 fi
 
 if [[ -f "${STATE_FILE}" ]] && jq -e --arg today "${TODAY_UTC}" '.date == $today' "${STATE_FILE}" >/dev/null 2>&1; then

@@ -68,7 +68,26 @@ export TRIAGE_ENABLE_DISPATCH=1
 export TRIAGE_DIR="${TMPDIR_TEST}/triage"
 export TRIAGE_REPOS_DIR="${TMPDIR_TEST}/repos"
 export TRIAGE_STATE_DIR="${TMPDIR_TEST}/state"
+export TRIAGE_CONFIG="${TMPDIR_TEST}/triage.toml"
 export GH_RELEASE_LOG="${TMPDIR_TEST}/releases.log"
+
+cat > "${TRIAGE_CONFIG}" <<'TOML'
+[[repos]]
+name = "acme/minor"
+release = true
+
+[[repos]]
+name = "acme/major"
+release = true
+
+[[repos]]
+name = "acme/patch"
+release = true
+
+[[repos]]
+name = "acme/none"
+release = true
+TOML
 
 "${ROOT}/scripts/release.sh" acme/minor
 grep -F "release create v1.3.0" "${GH_RELEASE_LOG}"

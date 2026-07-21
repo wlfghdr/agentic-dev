@@ -105,4 +105,26 @@ TRIAGE_STATE_DIR="${TMPDIR_TEST}/disabled-state" \
 
 jq -e '.itemCount == 0' "${TMPDIR_TEST}/report-disabled.json"
 
+cat > "${TMPDIR_TEST}/triage-omitted-repo-flags.toml" <<'TOML'
+[agent]
+login = "WulfAI"
+human_login = "wlfghdr"
+
+[dependabot]
+enabled = true
+
+[release]
+enabled = true
+
+[[repos]]
+name = "acme/app"
+TOML
+
+PATH="${TMPDIR_TEST}:${PATH}" \
+TRIAGE_CONFIG="${TMPDIR_TEST}/triage-omitted-repo-flags.toml" \
+TRIAGE_STATE_DIR="${TMPDIR_TEST}/omitted-state" \
+"${ROOT}/scripts/detect.py" > "${TMPDIR_TEST}/report-omitted.json" 2>/dev/null
+
+jq -e '.itemCount == 0' "${TMPDIR_TEST}/report-omitted.json"
+
 echo "maintenance detection tests passed"
