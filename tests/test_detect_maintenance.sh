@@ -42,7 +42,9 @@ elif [[ "$*" == "pr list -R acme/app --author dependabot[bot] --state open --lim
   {"number":1,"title":"build(deps): bump lib-a","url":"https://example.invalid/pr/1","isDraft":false,"statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}],"labels":[],"mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","isCrossRepository":false},
   {"number":2,"title":"build(deps): bump lib-b","url":"https://example.invalid/pr/2","isDraft":false,"statusCheckRollup":[{"name":"ci","status":"IN_PROGRESS","conclusion":""}],"labels":[],"mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","isCrossRepository":false},
   {"number":3,"title":"build(deps): bump lib-c","url":"https://example.invalid/pr/3","isDraft":false,"statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"FAILURE"}],"labels":[],"mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","isCrossRepository":false},
-  {"number":4,"title":"build(deps): bump lib-d","url":"https://example.invalid/pr/4","isDraft":false,"statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}],"labels":[],"mergeStateStatus":"DIRTY","mergeable":"CONFLICTING","isCrossRepository":false}
+  {"number":4,"title":"build(deps): bump lib-d","url":"https://example.invalid/pr/4","isDraft":false,"statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}],"labels":[],"mergeStateStatus":"DIRTY","mergeable":"CONFLICTING","isCrossRepository":false},
+  {"number":5,"title":"build(deps): bump lib-e","url":"https://example.invalid/pr/5","isDraft":false,"statusCheckRollup":[],"labels":[],"mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","isCrossRepository":false},
+  {"number":6,"title":"build(deps): bump lib-f","url":"https://example.invalid/pr/6","isDraft":false,"statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"ACTION_REQUIRED"}],"labels":[],"mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","isCrossRepository":false}
 ]
 JSON
 elif [[ "$*" == "repo view acme/app --json defaultBranchRef" ]]; then
@@ -69,6 +71,8 @@ jq -e '.items[] | select(.kind == "dependabot" and .number == 4 and .mode == "re
 jq -e '.items[] | select(.kind == "release" and .repo == "acme/app" and .mode == "daily")' "${TMPDIR_TEST}/report.json"
 grep -F "Dependabot PR has pending CI" "${TMPDIR_TEST}/stderr.log"
 grep -F "Dependabot PR has red CI" "${TMPDIR_TEST}/stderr.log"
+grep -F "Dependabot PR has no CI checks" "${TMPDIR_TEST}/stderr.log"
+grep -F "Dependabot PR has non-successful checks" "${TMPDIR_TEST}/stderr.log"
 
 mkdir -p "${TMPDIR_TEST}/state/release"
 jq -n --arg date "$(date -u +%F)" '{date: $date}' > "${TMPDIR_TEST}/state/release/acme_app.json"

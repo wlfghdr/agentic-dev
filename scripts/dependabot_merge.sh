@@ -58,6 +58,11 @@ if echo "${PR_JSON}" | jq -e '.labels[].name | select(. == "blocked" or . == "do
     exit 0
 fi
 
+if echo "${PR_JSON}" | jq -e '(.statusCheckRollup // []) | length == 0' >/dev/null; then
+    echo "==> Dependabot PR has no checks; skipping"
+    exit 0
+fi
+
 if echo "${PR_JSON}" | jq -e '.statusCheckRollup[]? | select(.conclusion == "FAILURE" or .conclusion == "CANCELLED" or .conclusion == "TIMED_OUT")' >/dev/null; then
     echo "==> Dependabot PR has red checks; skipping"
     exit 0
@@ -65,6 +70,11 @@ fi
 
 if echo "${PR_JSON}" | jq -e '.statusCheckRollup[]? | select(.status == "IN_PROGRESS" or .status == "QUEUED" or .status == "PENDING" or .status == "WAITING")' >/dev/null; then
     echo "==> Dependabot PR has pending checks; skipping"
+    exit 0
+fi
+
+if echo "${PR_JSON}" | jq -e '.statusCheckRollup[]? | select(.status != "COMPLETED" or ((.conclusion // "") | IN("SUCCESS", "NEUTRAL", "SKIPPED") | not))' >/dev/null; then
+    echo "==> Dependabot PR has non-successful checks; skipping"
     exit 0
 fi
 

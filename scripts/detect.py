@@ -161,6 +161,16 @@ def pending_checks(checks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
+def non_successful_completed_checks(checks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    acceptable = {"SUCCESS", "NEUTRAL", "SKIPPED"}
+    return [
+        c
+        for c in checks
+        if c.get("status") != "COMPLETED"
+        or (c.get("conclusion") or "").upper() not in acceptable
+    ]
+
+
 def count_open_agent_prs(repo: str) -> int:
     """Open PRs authored by AGENT_LOGIN in repo — drives the per-repo cap."""
     prs = gh([
@@ -519,6 +529,9 @@ def detect_dependabot_items(repo: str) -> list[dict]:
             continue
 
         checks = pr.get("statusCheckRollup") or []
+        if not checks:
+            skip(repo, pr["number"], "Dependabot PR has no CI checks")
+            continue
         bad = bad_checks(checks)
         pending = pending_checks(checks)
         if bad:
@@ -526,6 +539,10 @@ def detect_dependabot_items(repo: str) -> list[dict]:
             continue
         if pending:
             skip(repo, pr["number"], f"Dependabot PR has pending CI ({check_names(pending)})")
+            continue
+        unknown = non_successful_completed_checks(checks)
+        if unknown:
+            skip(repo, pr["number"], f"Dependabot PR has non-successful checks ({check_names(unknown)})")
             continue
 
         merge_state = (pr.get("mergeStateStatus") or "").upper()
