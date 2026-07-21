@@ -45,6 +45,11 @@ JSON
 {"author":{"login":"app/dependabot"},"isDraft":false,"mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}],"labels":[],"title":"build(deps): bump lib-f","url":"https://example.invalid/pr/7","headRefOid":"abc123"}
 JSON
         ;;
+    pr\ view\ 8\ -R\ acme/app\ --json*)
+        cat <<'JSON'
+{"author":{"login":"app/dependabot"},"isDraft":false,"mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}],"labels":[],"title":"ci(deps): bump actions/checkout","url":"https://example.invalid/pr/8","headRefOid":"def456"}
+JSON
+        ;;
     pr\ merge\ 1\ -R\ acme/app\ --squash\ --delete-branch\ --match-head-commit\ abc123)
         printf '%s\n' "$*" >> "${GH_MERGE_LOG}"
         ;;
@@ -55,6 +60,20 @@ JSON
     pr\ merge\ 7\ -R\ acme/app\ --squash\ --delete-branch\ --match-head-commit\ abc123)
         printf '%s\n' "$*" >> "${GH_MERGE_LOG}"
         ;;
+    pr\ merge\ 8\ -R\ acme/app\ --squash\ --delete-branch\ --match-head-commit\ def456)
+        printf '%s\n' "$*" >> "${GH_MERGE_LOG}"
+        echo 'GraphQL: refusing to allow an OAuth App to create or update workflow `.github/workflows/validate.yml` without `workflow` scope (mergePullRequest)' >&2
+        exit 1
+        ;;
+    api\ -X\ POST\ repos/acme/app/issues/8/labels\ -f\ labels[]=blocked)
+        printf '%s\n' "$*" >> "${GH_API_LOG}"
+        ;;
+    api\ -X\ POST\ repos/acme/app/issues/8/assignees\ -f\ assignees[]=wolf)
+        printf '%s\n' "$*" >> "${GH_API_LOG}"
+        ;;
+    pr\ comment\ 8\ -R\ acme/app\ --body*)
+        printf '%s\n' "$*" >> "${GH_API_LOG}"
+        ;;
     *)
         echo "unexpected gh args: $*" >&2
         exit 99
@@ -64,6 +83,9 @@ MOCK
 chmod +x "${TMPDIR_TEST}/gh"
 
 cat > "${TMPDIR_TEST}/triage.toml" <<'TOML'
+[agent]
+human_login = "wolf"
+
 [dependabot]
 enabled = true
 
@@ -77,6 +99,7 @@ export TRIAGE_ENABLE_DISPATCH=1
 export TRIAGE_DIR="${TMPDIR_TEST}/triage"
 export TRIAGE_CONFIG="${TMPDIR_TEST}/triage.toml"
 export GH_MERGE_LOG="${TMPDIR_TEST}/merges.log"
+export GH_API_LOG="${TMPDIR_TEST}/api.log"
 
 "${ROOT}/scripts/dependabot_merge.sh" acme/app 1
 grep -Fx "pr merge 1 -R acme/app --squash --delete-branch --match-head-commit abc123" "${GH_MERGE_LOG}"
@@ -106,9 +129,19 @@ fi
 "${ROOT}/scripts/dependabot_merge.sh" acme/app 7
 [[ "$(wc -l < "${GH_MERGE_LOG}")" == "3" ]]
 
+"${ROOT}/scripts/dependabot_merge.sh" acme/app 8
+[[ "$(wc -l < "${GH_MERGE_LOG}")" == "4" ]]
+grep -Fx "api -X POST repos/acme/app/issues/8/labels -f labels[]=blocked" "${GH_API_LOG}"
+grep -Fx "api -X POST repos/acme/app/issues/8/assignees -f assignees[]=wolf" "${GH_API_LOG}"
+grep -F "Dependabot auto-merge blocked" "${GH_API_LOG}"
+if grep -q -- '--auto' "${GH_MERGE_LOG}"; then
+    echo "dependabot merge enabled persistent auto-merge" >&2
+    exit 1
+fi
+
 export TRIAGE_CONFIG="${TMPDIR_TEST}/missing.toml"
 "${ROOT}/scripts/dependabot_merge.sh" acme/app 1
-[[ "$(wc -l < "${GH_MERGE_LOG}")" == "3" ]]
+[[ "$(wc -l < "${GH_MERGE_LOG}")" == "4" ]]
 
 cat > "${TMPDIR_TEST}/global-disabled.toml" <<'TOML'
 [dependabot]
@@ -120,7 +153,7 @@ dependabot_automerge = true
 TOML
 export TRIAGE_CONFIG="${TMPDIR_TEST}/global-disabled.toml"
 "${ROOT}/scripts/dependabot_merge.sh" acme/app 1
-[[ "$(wc -l < "${GH_MERGE_LOG}")" == "3" ]]
+[[ "$(wc -l < "${GH_MERGE_LOG}")" == "4" ]]
 
 cat > "${TMPDIR_TEST}/string-flags.toml" <<'TOML'
 [dependabot]
@@ -132,6 +165,6 @@ dependabot_automerge = "true"
 TOML
 export TRIAGE_CONFIG="${TMPDIR_TEST}/string-flags.toml"
 "${ROOT}/scripts/dependabot_merge.sh" acme/app 1
-[[ "$(wc -l < "${GH_MERGE_LOG}")" == "3" ]]
+[[ "$(wc -l < "${GH_MERGE_LOG}")" == "4" ]]
 
 echo "dependabot merge tests passed"
