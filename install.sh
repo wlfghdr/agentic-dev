@@ -31,11 +31,17 @@ TRIAGE_REPOS_DIR="${TRIAGE_REPOS_DIR:-${TRIAGE_PARENT}/repos}"
 TRIAGE_WORKTREES_DIR="${TRIAGE_WORKTREES_DIR:-${TRIAGE_PARENT}/worktrees}"
 
 escape_sed_replacement() {
-    printf '%s' "${1}" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/[&|]/\\&/g'
+    printf '%s' "${1}" | sed -e 's/\\/\\\\/g' -e 's/[&|]/\\&/g'
+}
+
+escape_systemd_value() {
+    printf '%s' "${1}" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/%/%%/g'
 }
 
 escape_systemd_replacement() {
-    escape_sed_replacement "${1}" | sed -e 's/%/%%/g'
+    local value
+    value="$(escape_systemd_value "${1}")"
+    escape_sed_replacement "${value}"
 }
 
 echo "==> install from ${REPO_DIR} to ${TRIAGE_DIR}"
