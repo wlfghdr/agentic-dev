@@ -155,6 +155,14 @@ REVIEW_OUT=$(mktemp)
 load_cli_chain "${CONF_FILE}" "review" "claude" "codex" "agy"
 CHAIN=("${CLI_CHAIN[@]}")
 
+LAST_LINE=""
+review_verdict_is_valid() {
+    case "${1}" in
+        "VERDICT: merge-ready"*|"VERDICT: needs-fix"*|"VERDICT: blocked"*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 rc=1
 for i in "${!CHAIN[@]}"; do
     TOOL="${CHAIN[i]}"
@@ -172,6 +180,16 @@ for i in "${!CHAIN[@]}"; do
     echo "--> ${TOOL} exit=${rc}"
     
     if [[ ${rc} -eq 0 ]]; then
+        LAST_LINE=$(awk 'NF { line=$0 } END { print line }' "${REVIEW_OUT}" | sed -E 's/[[:space:]]+$//')
+        if review_verdict_is_valid "${LAST_LINE}"; then
+            break
+        fi
+        echo "--> ${TOOL} returned success without a valid VERDICT final line: ${LAST_LINE:-<empty>}"
+        rc=3
+        if (( STEP < TOTAL )); then
+            echo "--> [${STEP}/${TOTAL}] ${TOOL} produced invalid review output. falling back..."
+            continue
+        fi
         break
     fi
     
@@ -185,7 +203,6 @@ for i in "${!CHAIN[@]}"; do
 done
 
 if [[ "${rc}" -eq 0 ]]; then
-    LAST_LINE=$(awk 'NF { line=$0 } END { print line }' "${REVIEW_OUT}" | sed -E 's/[[:space:]]+$//')
     echo "==> agent final line: ${LAST_LINE:-<empty>}"
     
     review_flag="--comment"
@@ -256,11 +273,6 @@ if [[ "${rc}" -eq 0 ]]; then
                 fi
             done
             ;;
-        *)
-            echo "FATAL: missing or invalid VERDICT final line" >&2
-            rm -f "${REVIEW_OUT}"
-            exit 3
-            ;;
     esac
 
     if [[ "${review_flag}" == "--approve" && "${PR_AUTHOR}" == "${AGENT_LOGIN}" ]]; then
@@ -298,6 +310,32 @@ if [[ "${rc}" -eq 0 ]]; then
 
     gh pr review "${NUM}" -R "${REPO}" "${review_flag}" -F "${CLEANED_OUT}" >/dev/null 2>&1 || \
         echo "WARN: failed to submit review to ${REPO}#${NUM}" >&2
+    rm -f "${CLEANED_OUT}"
+elif [[ "${rc}" -eq 3 ]]; then
+    echo "==> invalid review output from all available tools; labeling blocked and handing back to ${HUMAN_LOGIN}"
+    remove_label "${NEEDS_REVIEW_LABEL}"
+    remove_label "in-progress"
+    remove_label "approved"
+    remove_label "changes-requested"
+    add_label "blocked"
+    add_assignee_to "${REPO}" "${NUM}" "${HUMAN_LOGIN}"
+    remove_assignee_from "${REPO}" "${NUM}" "${AGENT_LOGIN}"
+    gh api -X POST "repos/${REPO}/pulls/${NUM}/requested_reviewers" -f "reviewers[]=${HUMAN_LOGIN}" >/dev/null 2>&1 || true
+
+    CLEANED_OUT=$(mktemp)
+    cat > "${CLEANED_OUT}" <<EOF
+### Review Summary
+
+**Findings**
+1. Review automation did not return a valid final VERDICT line after trying the configured review chain. Last final line: ${LAST_LINE:-<empty>}
+
+**Checks Run**
+- Automated review dispatch: blocked
+
+VERDICT: blocked - invalid review output from configured review chain
+EOF
+    gh pr review "${NUM}" -R "${REPO}" --comment -F "${CLEANED_OUT}" >/dev/null 2>&1 || \
+        echo "WARN: failed to submit invalid-output review comment to ${REPO}#${NUM}" >&2
     rm -f "${CLEANED_OUT}"
 fi
 rm -f "${REVIEW_OUT}"

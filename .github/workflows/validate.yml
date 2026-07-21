@@ -29,3 +29,6 @@ jobs:
 
       - name: Run review checkout regression tests
         run: ./tests/test_review_checkout.sh
+
+      - name: Run review verdict regression tests
+        run: ./tests/test_review_verdict.sh
