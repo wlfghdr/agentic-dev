@@ -26,3 +26,6 @@ jobs:
 
       - name: Run install rendering regression tests
         run: ./tests/test_install_rendering.sh
+
+      - name: Run review checkout regression tests
+        run: ./tests/test_review_checkout.sh

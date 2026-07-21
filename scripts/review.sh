@@ -77,11 +77,20 @@ if [[ ! -d "${LOCAL_REPO}/.git" ]]; then
     exit 2
 fi
 
-git -C "${LOCAL_REPO}" fetch --quiet origin "pull/${NUM}/head:pr-${NUM}-review" || true
+REVIEW_REF="refs/remotes/origin/pr-${NUM}-review"
+git -C "${LOCAL_REPO}" fetch --quiet --force origin "pull/${NUM}/head:${REVIEW_REF}"
+REVIEW_SHA="$(git -C "${LOCAL_REPO}" rev-parse "${REVIEW_REF}")"
 if [[ -e "${WORKTREE}" ]]; then
-    git -C "${WORKTREE}" reset --hard "pr-${NUM}-review"
+    git -C "${WORKTREE}" checkout --detach "${REVIEW_SHA}"
+    git -C "${WORKTREE}" reset --hard "${REVIEW_SHA}"
+    git -C "${WORKTREE}" clean -fd
 else
-    git -C "${LOCAL_REPO}" worktree add "${WORKTREE}" "pr-${NUM}-review"
+    git -C "${LOCAL_REPO}" worktree add --detach "${WORKTREE}" "${REVIEW_SHA}"
+fi
+CHECKED_OUT_SHA="$(git -C "${WORKTREE}" rev-parse HEAD)"
+if [[ "${CHECKED_OUT_SHA}" != "${REVIEW_SHA}" ]]; then
+    echo "FATAL: review checkout mismatch: expected ${REVIEW_SHA}, got ${CHECKED_OUT_SHA}" >&2
+    exit 2
 fi
 
 PR_JSON=$(gh pr view "${NUM}" -R "${REPO}" --json title,body,baseRefName,headRefName,files,labels,assignees,isDraft,mergeStateStatus,author,closingIssuesReferences)
