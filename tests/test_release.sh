@@ -196,4 +196,16 @@ TOML
 after_global_disabled_count="$(wc -l < "${GH_RELEASE_LOG}")"
 [[ "${after_count}" == "${after_global_disabled_count}" ]]
 
+cat > "${TRIAGE_CONFIG}" <<'TOML'
+[release]
+enabled = "true"
+
+[[repos]]
+name = "acme/patch"
+release = "true"
+TOML
+"${ROOT}/scripts/release.sh" acme/patch
+after_string_flags_count="$(wc -l < "${GH_RELEASE_LOG}")"
+[[ "${after_count}" == "${after_string_flags_count}" ]]
+
 echo "release tests passed"

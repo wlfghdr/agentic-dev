@@ -111,4 +111,16 @@ export TRIAGE_CONFIG="${TMPDIR_TEST}/global-disabled.toml"
 "${ROOT}/scripts/dependabot_merge.sh" acme/app 1
 [[ "$(wc -l < "${GH_MERGE_LOG}")" == "2" ]]
 
+cat > "${TMPDIR_TEST}/string-flags.toml" <<'TOML'
+[dependabot]
+enabled = "true"
+
+[[repos]]
+name = "acme/app"
+dependabot_automerge = "true"
+TOML
+export TRIAGE_CONFIG="${TMPDIR_TEST}/string-flags.toml"
+"${ROOT}/scripts/dependabot_merge.sh" acme/app 1
+[[ "$(wc -l < "${GH_MERGE_LOG}")" == "2" ]]
+
 echo "dependabot merge tests passed"

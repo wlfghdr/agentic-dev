@@ -311,16 +311,12 @@ def repo_config(repo: str) -> dict[str, Any]:
 
 def config_bool(section: str, key: str, default: bool) -> bool:
     value = CONFIG.get(section, {}).get(key, default)
-    if isinstance(value, str):
-        return value.lower() in ("1", "true", "yes", "on")
-    return bool(value)
+    return value is True
 
 
 def repo_bool(repo: str, key: str, default: bool) -> bool:
     value = repo_config(repo).get(key, default)
-    if isinstance(value, str):
-        return value.lower() in ("1", "true", "yes", "on")
-    return bool(value)
+    return value is True
 
 
 def default_branch(repo: str) -> str:
