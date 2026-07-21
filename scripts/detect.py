@@ -517,7 +517,6 @@ def detect_dependabot_items(repo: str) -> list[dict]:
 
     out = []
     for pr in prs:
-        mark_live_lock("dependabot", repo, pr["number"])
         if pr.get("isDraft"):
             skip(repo, pr["number"], "draft Dependabot PR")
             continue
@@ -554,6 +553,7 @@ def detect_dependabot_items(repo: str) -> list[dict]:
             mode = "rebase"
             reason = "Dependabot PR is behind/conflicting and needs rebase before merge"
 
+        mark_live_lock("dependabot", repo, pr["number"])
         out.append({
             "kind": "dependabot",
             "mode": mode,
