@@ -83,6 +83,8 @@ for message in \
     'API key is invalid' \
     'HTTP 401 Unauthorized' \
     'Credit balance is too low' \
+    'Error: claude native binary not installed.' \
+    'platform-native optional dependency was not downloaded' \
     'quota exceeded'; do
     printf '%s\n' "${message}" > "${OUTPUT}"
     cli_error_allows_fallback "${OUTPUT}"
