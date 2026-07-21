@@ -85,25 +85,19 @@ commit_range() {
 determine_bump() {
     local range="${1}"
     local bump="patch"
-    local subject body
+    local line
     local breaking_re='^[a-zA-Z]+(\([^)]+\))?!:'
     local feature_re='^feat(\([^)]+\))?:'
 
-    while IFS= read -r subject; do
-        if [[ "${subject}" =~ ${breaking_re} ]] || [[ "${subject}" == *"BREAKING CHANGE"* ]]; then
+    while IFS= read -r line; do
+        if [[ "${line}" =~ ${breaking_re} ]] || [[ "${line}" == *"BREAKING CHANGE"* ]]; then
             echo "major"
             return
         fi
-        if [[ "${subject}" =~ ${feature_re} ]]; then
+        if [[ "${line}" =~ ${feature_re} ]]; then
             bump="minor"
         fi
-    done < <(git -C "${LOCAL_REPO}" log --format=%s "${range}")
-
-    body="$(git -C "${LOCAL_REPO}" log --format=%B "${range}")"
-    if grep -q 'BREAKING CHANGE' <<<"${body}"; then
-        echo "major"
-        return
-    fi
+    done < <(git -C "${LOCAL_REPO}" log --format=%B "${range}")
     echo "${bump}"
 }
 
