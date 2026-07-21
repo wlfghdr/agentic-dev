@@ -5,17 +5,17 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMPDIR_TEST="$(mktemp -d)"
 trap 'rm -rf "${TMPDIR_TEST}"' EXIT
 
-TRIAGE_DIR="${TMPDIR_TEST}/triage" \
+TRIAGE_DIR="${TMPDIR_TEST}/triage&ops|prod" \
 TRIAGE_REPOS_DIR="${TMPDIR_TEST}/acme&partners/repos" \
 TRIAGE_WORKTREES_DIR="${TMPDIR_TEST}/acme|partners/work trees" \
 bash -n "${ROOT}/install.sh"
 
 render_helper="${TMPDIR_TEST}/render_template.sh"
-sed -n '/^render_template()/,/^}/p' "${ROOT}/install.sh" > "${render_helper}"
+sed -n '/^escape_sed_replacement()/,/^}/p; /^render_template()/,/^}/p' "${ROOT}/install.sh" > "${render_helper}"
 # shellcheck source=/dev/null
 source "${render_helper}"
 
-TRIAGE_DIR="${TMPDIR_TEST}/triage"
+TRIAGE_DIR="${TMPDIR_TEST}/triage&ops|prod"
 TRIAGE_REPOS_DIR="${TMPDIR_TEST}/acme&partners/repos"
 TRIAGE_WORKTREES_DIR="${TMPDIR_TEST}/acme|partners/work trees"
 

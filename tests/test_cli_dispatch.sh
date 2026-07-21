@@ -82,6 +82,7 @@ for message in \
     'OAuth token expired' \
     'API key is invalid' \
     'HTTP 401 Unauthorized' \
+    'Credit balance is too low' \
     'quota exceeded'; do
     printf '%s\n' "${message}" > "${OUTPUT}"
     cli_error_allows_fallback "${OUTPUT}"
