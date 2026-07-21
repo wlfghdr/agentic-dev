@@ -333,10 +333,12 @@ def default_branch(repo: str) -> str:
 
 
 def repo_has_changes_since_latest_release(repo: str, branch: str) -> bool:
-    latest = gh(["release", "list", "-R", repo, "--limit", "100", "--json", "tagName"])
+    latest = gh(["release", "list", "-R", repo, "--limit", "100", "--json", "tagName,isDraft"])
     latest_tag = ""
     if isinstance(latest, list):
         for item in latest:
+            if item.get("isDraft"):
+                continue
             tag = item.get("tagName") or ""
             if re.match(r"^v[0-9]+\.[0-9]+\.[0-9]+$", tag):
                 latest_tag = tag

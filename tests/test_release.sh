@@ -98,13 +98,13 @@ case "$*" in
     repo\ view\ acme/*\ --json\ defaultBranchRef\ --jq\ .defaultBranchRef.name\ //\ \"main\")
         printf 'main\n'
         ;;
-    release\ list\ -R\ acme/none\ --limit\ 100\ --json\ tagName\ --jq\ *)
+    release\ list\ -R\ acme/none\ --limit\ 100\ --json\ tagName,isDraft\ --jq\ *)
         printf 'v1.2.4\n'
         ;;
-    release\ list\ -R\ acme/badversion\ --limit\ 100\ --json\ tagName\ --jq\ *)
+    release\ list\ -R\ acme/badversion\ --limit\ 100\ --json\ tagName,isDraft\ --jq\ *)
         printf '\n'
         ;;
-    release\ list\ -R\ acme/*\ --limit\ 100\ --json\ tagName\ --jq\ *)
+    release\ list\ -R\ acme/*\ --limit\ 100\ --json\ tagName,isDraft\ --jq\ *)
         printf 'v1.2.3\n'
         ;;
     release\ create\ *)

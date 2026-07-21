@@ -57,8 +57,8 @@ fi
 DEFAULT_BRANCH="$(gh repo view "${REPO}" --json defaultBranchRef --jq '.defaultBranchRef.name // "main"')"
 git -C "${LOCAL_REPO}" fetch --quiet --tags origin "${DEFAULT_BRANCH}"
 HEAD_SHA="$(git -C "${LOCAL_REPO}" rev-parse "origin/${DEFAULT_BRANCH}")"
-LATEST_TAG="$(gh release list -R "${REPO}" --limit 100 --json tagName \
-    --jq '[.[].tagName | select(test("^v[0-9]+\\\\.[0-9]+\\\\.[0-9]+$"))][0] // ""')"
+LATEST_TAG="$(gh release list -R "${REPO}" --limit 100 --json tagName,isDraft \
+    --jq '[.[] | select((.isDraft // false) | not) | .tagName | select(test("^v[0-9]+\\\\.[0-9]+\\\\.[0-9]+$"))][0] // ""')"
 
 if [[ -n "${LATEST_TAG}" ]] && [[ -z "$(git -C "${LOCAL_REPO}" log --format=%H "${LATEST_TAG}..origin/${DEFAULT_BRANCH}")" ]]; then
     echo "==> no commits since latest release tag ${LATEST_TAG}"

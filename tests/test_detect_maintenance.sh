@@ -49,8 +49,8 @@ elif [[ "$*" == "pr list -R acme/app --author dependabot[bot] --state open --lim
 JSON
 elif [[ "$*" == "repo view acme/app --json defaultBranchRef" ]]; then
     printf '{"defaultBranchRef":{"name":"main"}}\n'
-elif [[ "$*" == "release list -R acme/app --limit 100 --json tagName" ]]; then
-    printf '[{"tagName":"nightly"},{"tagName":"v1.0.0"}]\n'
+elif [[ "$*" == "release list -R acme/app --limit 100 --json tagName,isDraft" ]]; then
+    printf '[{"tagName":"v9.9.9","isDraft":true},{"tagName":"nightly","isDraft":false},{"tagName":"v1.0.0","isDraft":false}]\n'
 elif [[ "$*" == "api -X GET repos/acme/app/compare/v1.0.0...main" ]]; then
     printf '{"ahead_by":2}\n'
 else
