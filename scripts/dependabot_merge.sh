@@ -35,13 +35,19 @@ repo_automerge() {
     python3 "${SCRIPT_DIR}/parse_toml.py" "${CONF_FILE}" "repos.dependabot_automerge" "${REPO}" 2>/dev/null || echo "false"
 }
 
+global_enabled="$(python3 "${SCRIPT_DIR}/parse_toml.py" "${CONF_FILE}" "dependabot.enabled" 2>/dev/null || echo "false")"
+if [[ "${global_enabled}" != "True" && "${global_enabled}" != "true" ]]; then
+    echo "==> Dependabot automerge globally disabled"
+    exit 0
+fi
+
 enabled="$(repo_automerge)"
 if [[ "${enabled}" == "False" || "${enabled}" == "false" ]]; then
     echo "==> Dependabot automerge disabled for ${REPO}"
     exit 0
 fi
 
-PR_JSON="$(gh pr view "${NUM}" -R "${REPO}" --json author,isDraft,mergeStateStatus,mergeable,statusCheckRollup,labels,title,url)"
+PR_JSON="$(gh pr view "${NUM}" -R "${REPO}" --json author,isDraft,mergeStateStatus,mergeable,statusCheckRollup,labels,title,url,headRefOid)"
 AUTHOR="$(echo "${PR_JSON}" | jq -r '.author.login // ""')"
 if [[ "${AUTHOR}" != "${DEPENDABOT_LOGIN}" ]]; then
     echo "FATAL: refusing to merge non-Dependabot PR authored by ${AUTHOR}" >&2
@@ -87,10 +93,10 @@ if [[ "${MODE}" == "rebase" || "${merge_state}" == "BEHIND" || "${merge_state}" 
     exit 0
 fi
 
-echo "==> merging Dependabot PR with squash"
-if gh pr merge "${NUM}" -R "${REPO}" --squash --delete-branch; then
+HEAD_SHA="$(echo "${PR_JSON}" | jq -r '.headRefOid // ""')"
+echo "==> merging Dependabot PR with squash at ${HEAD_SHA}"
+if gh pr merge "${NUM}" -R "${REPO}" --squash --delete-branch --match-head-commit "${HEAD_SHA}"; then
     echo "==> merged Dependabot PR ${REPO}#${NUM}"
 else
-    echo "==> direct merge failed; enabling auto-merge if branch protection is waiting"
-    gh pr merge "${NUM}" -R "${REPO}" --squash --auto --delete-branch
+    echo "==> direct Dependabot merge failed; not enabling persistent auto-merge"
 fi

@@ -33,9 +33,18 @@ fi
 
 release_enabled="false"
 if [[ -f "${CONF_FILE}" ]]; then
-    release_enabled="$(python3 "$(dirname "${BASH_SOURCE[0]}")/parse_toml.py" "${CONF_FILE}" "repos.release" "${REPO}" 2>/dev/null || echo "false")"
+    release_enabled="$(python3 "$(dirname "${BASH_SOURCE[0]}")/parse_toml.py" "${CONF_FILE}" "release.enabled" 2>/dev/null || echo "false")"
 fi
 if [[ "${release_enabled}" != "True" && "${release_enabled}" != "true" ]]; then
+    echo "==> releases globally disabled"
+    exit 0
+fi
+
+repo_release_enabled="false"
+if [[ -f "${CONF_FILE}" ]]; then
+    repo_release_enabled="$(python3 "$(dirname "${BASH_SOURCE[0]}")/parse_toml.py" "${CONF_FILE}" "repos.release" "${REPO}" 2>/dev/null || echo "false")"
+fi
+if [[ "${repo_release_enabled}" != "True" && "${repo_release_enabled}" != "true" ]]; then
     echo "==> releases disabled for ${REPO}"
     exit 0
 fi

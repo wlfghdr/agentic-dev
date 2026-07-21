@@ -127,6 +127,9 @@ export TRIAGE_CONFIG="${TMPDIR_TEST}/triage.toml"
 export GH_RELEASE_LOG="${TMPDIR_TEST}/releases.log"
 
 cat > "${TRIAGE_CONFIG}" <<'TOML'
+[release]
+enabled = true
+
 [[repos]]
 name = "acme/minor"
 release = true
@@ -180,5 +183,17 @@ fi
 [[ ! -e /tmp/agentic-dev-version-pwned ]]
 after_badversion_count="$(wc -l < "${GH_RELEASE_LOG}")"
 [[ "${after_count}" == "${after_badversion_count}" ]]
+
+cat > "${TRIAGE_CONFIG}" <<'TOML'
+[release]
+enabled = false
+
+[[repos]]
+name = "acme/patch"
+release = true
+TOML
+"${ROOT}/scripts/release.sh" acme/patch
+after_global_disabled_count="$(wc -l < "${GH_RELEASE_LOG}")"
+[[ "${after_count}" == "${after_global_disabled_count}" ]]
 
 echo "release tests passed"
