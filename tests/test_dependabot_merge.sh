@@ -76,4 +76,8 @@ fi
 "${ROOT}/scripts/dependabot_merge.sh" acme/app 5
 [[ "$(wc -l < "${GH_MERGE_LOG}")" == "1" ]]
 
+export TRIAGE_CONFIG="${TMPDIR_TEST}/missing.toml"
+"${ROOT}/scripts/dependabot_merge.sh" acme/app 1
+[[ "$(wc -l < "${GH_MERGE_LOG}")" == "1" ]]
+
 echo "dependabot merge tests passed"

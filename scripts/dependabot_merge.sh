@@ -32,7 +32,7 @@ if [[ "${TRIAGE_ENABLE_DISPATCH:-0}" != "1" ]]; then
 fi
 
 repo_automerge() {
-    python3 "${SCRIPT_DIR}/parse_toml.py" "${CONF_FILE}" "repos.dependabot_automerge" "${REPO}" 2>/dev/null || echo "true"
+    python3 "${SCRIPT_DIR}/parse_toml.py" "${CONF_FILE}" "repos.dependabot_automerge" "${REPO}" 2>/dev/null || echo "false"
 }
 
 enabled="$(repo_automerge)"
