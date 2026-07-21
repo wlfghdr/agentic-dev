@@ -21,6 +21,7 @@ make_repo() {
     git -C "${seed}" add payload.txt
     git -C "${seed}" commit -m "chore: initial" >/dev/null
     git -C "${seed}" tag "${tag}"
+    git -C "${seed}" tag v9.9.9
     printf '%s\n' "${subject}" > "${seed}/payload.txt"
     git -C "${seed}" commit -am "${subject}" >/dev/null
     git -C "${seed}" branch -M main
