@@ -26,9 +26,8 @@ fi
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TRIAGE_DIR="${TRIAGE_DIR:-/srv/agentic-dev}"
-TRIAGE_PARENT="$(dirname "${TRIAGE_DIR}")"
-TRIAGE_REPOS_DIR="${TRIAGE_REPOS_DIR:-${TRIAGE_PARENT}/repos}"
-TRIAGE_WORKTREES_DIR="${TRIAGE_WORKTREES_DIR:-${TRIAGE_PARENT}/worktrees}"
+TRIAGE_REPOS_DIR="${TRIAGE_REPOS_DIR:-/srv/wulfai/repos}"
+TRIAGE_WORKTREES_DIR="${TRIAGE_WORKTREES_DIR:-/srv/wulfai/worktrees}"
 
 escape_sed_replacement() {
     printf '%s' "${1}" | sed -e 's/\\/\\\\/g' -e 's/[&|]/\\&/g'
