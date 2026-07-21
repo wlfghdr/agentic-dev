@@ -158,7 +158,9 @@ CHAIN=("${CLI_CHAIN[@]}")
 LAST_LINE=""
 review_verdict_is_valid() {
     case "${1}" in
-        "VERDICT: merge-ready"*|"VERDICT: needs-fix"*|"VERDICT: blocked"*) return 0 ;;
+        "VERDICT: merge-ready") return 0 ;;
+        "VERDICT: needs-fix - "?*) return 0 ;;
+        "VERDICT: blocked - "?*) return 0 ;;
         *) return 1 ;;
     esac
 }

@@ -21,7 +21,13 @@ for line in \
     '' \
     'Please let me know if there is anything else you need!' \
     'VERDICT merge-ready' \
-    'VERDICT: approved'; do
+    'VERDICT: approved' \
+    'VERDICT: merge-ready-ish' \
+    'VERDICT: needs-fix' \
+    'VERDICT: needs-fix reason' \
+    'VERDICT: needs-fix - ' \
+    'VERDICT: blocked unexpectedly' \
+    'VERDICT: blocked - '; do
     if review_verdict_is_valid "${line}"; then
         echo "invalid review verdict accepted: ${line}" >&2
         exit 1
