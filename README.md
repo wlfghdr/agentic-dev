@@ -167,6 +167,38 @@ Agent-authored PR titles should follow Conventional Commits (`fix: ...`,
 SemVer version from the merged commit subjects: breaking changes create a major
 bump, `feat` creates a minor bump, and other merged changes create a patch bump.
 
+## Maintenance Safety
+
+Dependabot merging and daily releases are state-changing maintenance jobs, so
+they are opt-in at both the global and repository level. Existing installations
+that omit `[dependabot]`, `[release]`, `dependabot_automerge`, or `release`
+remain disabled until the operator explicitly enables them in `triage.toml`.
+
+Required GitHub permissions for the authenticated `gh` account:
+- Dependabot merge: read repository metadata, read PR checks, merge PRs, and
+  delete merged branches when allowed by the repository.
+- Release: read repository metadata and tags, compare commits, and create tags
+  and GitHub releases.
+
+Failure behavior:
+- Dependabot PRs with no checks, pending checks, red checks, unknown check
+  conclusions, draft state, `blocked`, or `do-not-merge` are skipped.
+- Dependabot PRs that are behind or conflicting are rebased first. A clean
+  rebase is deterministic; only real conflicts use the configured rebase agent
+  chain. Unresolved conflicts are handed back as `blocked`.
+- Missing or unreadable maintenance config fails closed. No merge or release is
+  authorized without the explicit repository opt-in.
+- Releases run at most once per UTC day per repository and only when commits
+  exist after the latest SemVer GitHub release tag.
+
+Rollback:
+- Set `[dependabot].enabled = false` or a repo's
+  `dependabot_automerge = false` to stop dependency auto-merges.
+- Set `[release].enabled = false` or a repo's `release = false` to stop daily
+  releases.
+- Reinstall after versioned script changes with `./install.sh`; runtime config
+  is preserved by the installer and can be reverted independently.
+
 ---
 
 ## Installation
