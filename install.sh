@@ -31,7 +31,11 @@ TRIAGE_REPOS_DIR="${TRIAGE_REPOS_DIR:-${TRIAGE_PARENT}/repos}"
 TRIAGE_WORKTREES_DIR="${TRIAGE_WORKTREES_DIR:-${TRIAGE_PARENT}/worktrees}"
 
 escape_sed_replacement() {
-    printf '%s' "${1}" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/%/%%/g' -e 's/[&|]/\\&/g'
+    printf '%s' "${1}" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/[&|]/\\&/g'
+}
+
+escape_systemd_replacement() {
+    escape_sed_replacement "${1}" | sed -e 's/%/%%/g'
 }
 
 echo "==> install from ${REPO_DIR} to ${TRIAGE_DIR}"
@@ -66,9 +70,9 @@ render_template() {
     local triage_dir_escaped
     local repos_dir_escaped
     local worktrees_dir_escaped
-    triage_dir_escaped="$(escape_sed_replacement "${TRIAGE_DIR}")"
-    repos_dir_escaped="$(escape_sed_replacement "${TRIAGE_REPOS_DIR}")"
-    worktrees_dir_escaped="$(escape_sed_replacement "${TRIAGE_WORKTREES_DIR}")"
+    triage_dir_escaped="$(escape_systemd_replacement "${TRIAGE_DIR}")"
+    repos_dir_escaped="$(escape_systemd_replacement "${TRIAGE_REPOS_DIR}")"
+    worktrees_dir_escaped="$(escape_systemd_replacement "${TRIAGE_WORKTREES_DIR}")"
     sed \
         -e "s|/srv/agentic-dev|${triage_dir_escaped}|g" \
         -e "s|@TRIAGE_REPOS_DIR@|${repos_dir_escaped}|g" \
