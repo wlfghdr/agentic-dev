@@ -211,3 +211,13 @@ run_cli_tool() {
     set -e
     return "${rc}"
 }
+
+cli_error_allows_fallback() {
+    # cli_error_allows_fallback OUTPUT_FILE
+    # Only classify errors that indicate the CLI itself is unavailable. Avoid
+    # broad words such as "auth", "permission", or "expired", which can also
+    # describe a genuine failure in the task the agent was asked to perform.
+    grep -Eqi \
+        'limit|quota|credit balance|insufficient credits|429|too many requests|cooldown|overloaded|throttl|authentication (failed|required|error)|failed to authenticate|oauth[^[:alnum:]]*(token[^[:alnum:]]*)?(failed|invalid|expired|required|error)|(^|[^[:digit:]])401([^[:digit:]]|$)|unauthorized|credentials?[^[:alnum:]]+(are )?(missing|invalid|expired|required|not (found|set))|(api[[:space:]_-]*key|access token)[^[:alnum:]]+(is )?(missing|invalid|expired|required|not (found|set))|not logged in|login required|please (log|sign) in|run .*(auth login|login to authenticate)' \
+        "${1}"
+}

@@ -26,6 +26,23 @@ fi
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TRIAGE_DIR="${TRIAGE_DIR:-/srv/agentic-dev}"
+TRIAGE_PARENT="$(dirname "${TRIAGE_DIR}")"
+TRIAGE_REPOS_DIR="${TRIAGE_REPOS_DIR:-${TRIAGE_PARENT}/repos}"
+TRIAGE_WORKTREES_DIR="${TRIAGE_WORKTREES_DIR:-${TRIAGE_PARENT}/worktrees}"
+
+escape_sed_replacement() {
+    printf '%s' "${1}" | sed -e 's/\\/\\\\/g' -e 's/[&|]/\\&/g'
+}
+
+escape_systemd_value() {
+    printf '%s' "${1}" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/%/%%/g'
+}
+
+escape_systemd_replacement() {
+    local value
+    value="$(escape_systemd_value "${1}")"
+    escape_sed_replacement "${value}"
+}
 
 echo "==> install from ${REPO_DIR} to ${TRIAGE_DIR}"
 
@@ -46,15 +63,31 @@ else
 fi
 
 # scripts (compiled with dynamic path substitutions)
-for script in detect.py tick.sh engineer.sh review.sh merge.sh cli_dispatch.sh; do
-    sed "s|/srv/agentic-dev|${TRIAGE_DIR}|g" "${REPO_DIR}/scripts/${script}" > "/tmp/${script}"
+triage_dir_escaped="$(escape_sed_replacement "${TRIAGE_DIR}")"
+for script in detect.py tick.sh engineer.sh review.sh merge.sh cli_dispatch.sh parse_toml.py; do
+    sed "s|/srv/agentic-dev|${triage_dir_escaped}|g" "${REPO_DIR}/scripts/${script}" > "/tmp/${script}"
     install -m 0755 "/tmp/${script}" "${TRIAGE_DIR}/bin/${script}"
     rm -f "/tmp/${script}"
 done
 install -m 0644 "${REPO_DIR}/README.md"           "${TRIAGE_DIR}/README.md"
 
+render_template() {
+    # render_template SOURCE DEST
+    local triage_dir_escaped
+    local repos_dir_escaped
+    local worktrees_dir_escaped
+    triage_dir_escaped="$(escape_systemd_replacement "${TRIAGE_DIR}")"
+    repos_dir_escaped="$(escape_systemd_replacement "${TRIAGE_REPOS_DIR}")"
+    worktrees_dir_escaped="$(escape_systemd_replacement "${TRIAGE_WORKTREES_DIR}")"
+    sed \
+        -e "s|/srv/agentic-dev|${triage_dir_escaped}|g" \
+        -e "s|@TRIAGE_REPOS_DIR@|${repos_dir_escaped}|g" \
+        -e "s|@TRIAGE_WORKTREES_DIR@|${worktrees_dir_escaped}|g" \
+        "${1}" > "${2}"
+}
+
 # systemd units
-sed "s|/srv/agentic-dev|${TRIAGE_DIR}|g" "${REPO_DIR}/systemd/triage-tick.service" > /tmp/triage-tick.service
+render_template "${REPO_DIR}/systemd/triage-tick.service" /tmp/triage-tick.service
 install -m 0644 /tmp/triage-tick.service /etc/systemd/system/triage-tick.service
 rm -f /tmp/triage-tick.service
 install -m 0644 "${REPO_DIR}/systemd/triage-tick.timer"   /etc/systemd/system/triage-tick.timer
@@ -75,7 +108,7 @@ for unit in triage-tick.timer triage-tick.service; do
         repo_files=()
         for f in "${src_dir}"/*.conf; do
             [[ -e "${f}" ]] || continue
-            sed "s|/srv/agentic-dev|${TRIAGE_DIR}|g" "${f}" > "/tmp/$(basename "${f}")"
+            render_template "${f}" "/tmp/$(basename "${f}")"
             install -m 0644 "/tmp/$(basename "${f}")" "${dropin_dir}/$(basename "${f}")"
             rm -f "/tmp/$(basename "${f}")"
             repo_files+=("$(basename "${f}")")
@@ -98,7 +131,7 @@ for unit in triage-tick.timer triage-tick.service; do
 done
 
 # local log retention
-sed "s|/srv/agentic-dev|${TRIAGE_DIR}|g" "${REPO_DIR}/logrotate/agentic-triage" > /tmp/agentic-triage
+sed "s|/srv/agentic-dev|${triage_dir_escaped}|g" "${REPO_DIR}/logrotate/agentic-triage" > /tmp/agentic-triage
 install -m 0644 /tmp/agentic-triage /etc/logrotate.d/agentic-triage
 rm -f /tmp/agentic-triage
 

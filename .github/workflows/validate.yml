@@ -23,3 +23,12 @@ jobs:
 
       - name: Run cli_dispatch regression tests
         run: ./tests/test_cli_dispatch.sh
+
+      - name: Run install rendering regression tests
+        run: ./tests/test_install_rendering.sh
+
+      - name: Run review checkout regression tests
+        run: ./tests/test_review_checkout.sh
+
+      - name: Run review verdict regression tests
+        run: ./tests/test_review_verdict.sh

@@ -77,11 +77,20 @@ if [[ ! -d "${LOCAL_REPO}/.git" ]]; then
     exit 2
 fi
 
-git -C "${LOCAL_REPO}" fetch --quiet origin "pull/${NUM}/head:pr-${NUM}-review" || true
+REVIEW_REF="refs/remotes/origin/pr-${NUM}-review"
+git -C "${LOCAL_REPO}" fetch --quiet --force origin "pull/${NUM}/head:${REVIEW_REF}"
+REVIEW_SHA="$(git -C "${LOCAL_REPO}" rev-parse "${REVIEW_REF}")"
 if [[ -e "${WORKTREE}" ]]; then
-    git -C "${WORKTREE}" reset --hard "pr-${NUM}-review"
+    git -C "${WORKTREE}" checkout --detach "${REVIEW_SHA}"
+    git -C "${WORKTREE}" reset --hard "${REVIEW_SHA}"
+    git -C "${WORKTREE}" clean -fd
 else
-    git -C "${LOCAL_REPO}" worktree add "${WORKTREE}" "pr-${NUM}-review"
+    git -C "${LOCAL_REPO}" worktree add --detach "${WORKTREE}" "${REVIEW_SHA}"
+fi
+CHECKED_OUT_SHA="$(git -C "${WORKTREE}" rev-parse HEAD)"
+if [[ "${CHECKED_OUT_SHA}" != "${REVIEW_SHA}" ]]; then
+    echo "FATAL: review checkout mismatch: expected ${REVIEW_SHA}, got ${CHECKED_OUT_SHA}" >&2
+    exit 2
 fi
 
 PR_JSON=$(gh pr view "${NUM}" -R "${REPO}" --json title,body,baseRefName,headRefName,files,labels,assignees,isDraft,mergeStateStatus,author,closingIssuesReferences)
@@ -146,6 +155,16 @@ REVIEW_OUT=$(mktemp)
 load_cli_chain "${CONF_FILE}" "review" "claude" "codex" "agy"
 CHAIN=("${CLI_CHAIN[@]}")
 
+LAST_LINE=""
+review_verdict_is_valid() {
+    case "${1}" in
+        "VERDICT: merge-ready") return 0 ;;
+        "VERDICT: needs-fix - "?*) return 0 ;;
+        "VERDICT: blocked - "?*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 rc=1
 for i in "${!CHAIN[@]}"; do
     TOOL="${CHAIN[i]}"
@@ -163,11 +182,21 @@ for i in "${!CHAIN[@]}"; do
     echo "--> ${TOOL} exit=${rc}"
     
     if [[ ${rc} -eq 0 ]]; then
+        LAST_LINE=$(awk 'NF { line=$0 } END { print line }' "${REVIEW_OUT}" | sed -E 's/[[:space:]]+$//')
+        if review_verdict_is_valid "${LAST_LINE}"; then
+            break
+        fi
+        echo "--> ${TOOL} returned success without a valid VERDICT final line: ${LAST_LINE:-<empty>}"
+        rc=3
+        if (( STEP < TOTAL )); then
+            echo "--> [${STEP}/${TOTAL}] ${TOOL} produced invalid review output. falling back..."
+            continue
+        fi
         break
     fi
     
     if [[ ${rc} -ne 0 ]]; then
-        if (( STEP < TOTAL )) && { [[ ${rc} -eq 127 ]] || grep -Eqi "limit|quota|429|too many requests|cooldown|overloaded|throttl" "${REVIEW_OUT}"; }; then
+        if (( STEP < TOTAL )) && { [[ ${rc} -eq 127 ]] || cli_error_allows_fallback "${REVIEW_OUT}"; }; then
             echo "--> [${STEP}/${TOTAL}] ${TOOL} unavailable or rate-limited. falling back..."
             continue
         fi
@@ -176,7 +205,6 @@ for i in "${!CHAIN[@]}"; do
 done
 
 if [[ "${rc}" -eq 0 ]]; then
-    LAST_LINE=$(awk 'NF { line=$0 } END { print line }' "${REVIEW_OUT}" | sed -E 's/[[:space:]]+$//')
     echo "==> agent final line: ${LAST_LINE:-<empty>}"
     
     review_flag="--comment"
@@ -247,11 +275,6 @@ if [[ "${rc}" -eq 0 ]]; then
                 fi
             done
             ;;
-        *)
-            echo "FATAL: missing or invalid VERDICT final line" >&2
-            rm -f "${REVIEW_OUT}"
-            exit 3
-            ;;
     esac
 
     if [[ "${review_flag}" == "--approve" && "${PR_AUTHOR}" == "${AGENT_LOGIN}" ]]; then
@@ -289,6 +312,32 @@ if [[ "${rc}" -eq 0 ]]; then
 
     gh pr review "${NUM}" -R "${REPO}" "${review_flag}" -F "${CLEANED_OUT}" >/dev/null 2>&1 || \
         echo "WARN: failed to submit review to ${REPO}#${NUM}" >&2
+    rm -f "${CLEANED_OUT}"
+elif [[ "${rc}" -eq 3 ]]; then
+    echo "==> invalid review output from all available tools; labeling blocked and handing back to ${HUMAN_LOGIN}"
+    remove_label "${NEEDS_REVIEW_LABEL}"
+    remove_label "in-progress"
+    remove_label "approved"
+    remove_label "changes-requested"
+    add_label "blocked"
+    add_assignee_to "${REPO}" "${NUM}" "${HUMAN_LOGIN}"
+    remove_assignee_from "${REPO}" "${NUM}" "${AGENT_LOGIN}"
+    gh api -X POST "repos/${REPO}/pulls/${NUM}/requested_reviewers" -f "reviewers[]=${HUMAN_LOGIN}" >/dev/null 2>&1 || true
+
+    CLEANED_OUT=$(mktemp)
+    cat > "${CLEANED_OUT}" <<EOF
+### Review Summary
+
+**Findings**
+1. Review automation did not return a valid final VERDICT line after trying the configured review chain. Last final line: ${LAST_LINE:-<empty>}
+
+**Checks Run**
+- Automated review dispatch: blocked
+
+VERDICT: blocked - invalid review output from configured review chain
+EOF
+    gh pr review "${NUM}" -R "${REPO}" --comment -F "${CLEANED_OUT}" >/dev/null 2>&1 || \
+        echo "WARN: failed to submit invalid-output review comment to ${REPO}#${NUM}" >&2
     rm -f "${CLEANED_OUT}"
 fi
 rm -f "${REVIEW_OUT}"
