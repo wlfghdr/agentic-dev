@@ -151,4 +151,33 @@ TRIAGE_STATE_DIR="${TMPDIR_TEST}/string-state" \
 
 jq -e '.itemCount == 0' "${TMPDIR_TEST}/report-string.json"
 
+cat > "${TMPDIR_TEST}/triage-gh-failure.toml" <<'TOML'
+[agent]
+login = "WulfAI"
+human_login = "wlfghdr"
+
+[dependabot]
+enabled = true
+
+[[repos]]
+name = "acme/app"
+dependabot_automerge = true
+TOML
+
+cat > "${TMPDIR_TEST}/gh" <<'MOCK_FAIL'
+#!/usr/bin/env bash
+echo "rate limited" >&2
+exit 1
+MOCK_FAIL
+chmod +x "${TMPDIR_TEST}/gh"
+
+if PATH="${TMPDIR_TEST}:${PATH}" \
+TRIAGE_CONFIG="${TMPDIR_TEST}/triage-gh-failure.toml" \
+TRIAGE_STATE_DIR="${TMPDIR_TEST}/failure-state" \
+"${ROOT}/scripts/detect.py" > "${TMPDIR_TEST}/report-failure.json" 2>"${TMPDIR_TEST}/stderr-failure.log"; then
+    echo "detect succeeded despite gh failure" >&2
+    exit 1
+fi
+grep -F "detection incomplete" "${TMPDIR_TEST}/stderr-failure.log"
+
 echo "maintenance detection tests passed"

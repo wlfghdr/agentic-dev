@@ -112,18 +112,21 @@ HISTORY_RETENTION_DAYS = int(os.environ.get("TRIAGE_HISTORY_RETENTION_DAYS", "14
 limits_config = CONFIG.get("limits", {})
 OPEN_PR_CAP_PER_REPO = int(limits_config.get("open_pr_cap_per_repo", int(os.environ.get("TRIAGE_OPEN_PR_CAP_PER_REPO", "3"))))
 LIVE_LOCK_SLUGS: set[str] = set()
+GH_FAILURES = 0
 DEPENDABOT_LOGIN = os.environ.get("TRIAGE_DEPENDABOT_LOGIN", "dependabot[bot]")
 TODAY_UTC = time.strftime("%Y-%m-%d", time.gmtime())
 
 
 def gh(args: list[str]) -> Any:
-    """Run gh, parse JSON output. Return [] on failure."""
+    """Run gh and parse JSON output. Mark detection incomplete on failure."""
+    global GH_FAILURES
     try:
         r = subprocess.run(
             ["gh"] + args, capture_output=True, text=True, timeout=30, check=True
         )
         return json.loads(r.stdout) if r.stdout.strip() else []
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, json.JSONDecodeError) as e:
+        GH_FAILURES += 1
         print(f"[warn] gh failed for {args[:3]}: {e}", file=sys.stderr)
         return []
 
@@ -643,6 +646,9 @@ def main() -> int:
         items.extend(detect_pr_engineer_items(repo))
         items.extend(detect_review_items(repo))
         items.extend(detect_release_items(repo))
+    if GH_FAILURES:
+        print(f"[fatal] detection incomplete: {GH_FAILURES} GitHub CLI/API calls failed", file=sys.stderr)
+        return 2
     items = dedupe_items(items)
 
     generated_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
