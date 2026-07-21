@@ -32,10 +32,34 @@ make_repo() {
     git clone "${remote}" "${local_repo}" >/dev/null 2>&1
 }
 
+make_version_repo() {
+    local name="${1}"
+    local version="${2}"
+    local remote="${TMPDIR_TEST}/${name}.git"
+    local seed="${TMPDIR_TEST}/${name}-seed"
+    local local_repo="${TMPDIR_TEST}/repos/${name}"
+
+    git init --bare "${remote}" >/dev/null
+    git init "${seed}" >/dev/null
+    git -C "${seed}" config user.email "test@example.invalid"
+    git -C "${seed}" config user.name "Release Test"
+    printf '%s\n' "${version}" > "${seed}/VERSION"
+    printf 'payload\n' > "${seed}/payload.txt"
+    git -C "${seed}" add VERSION payload.txt
+    git -C "${seed}" commit -m "feat: initial versioned release" >/dev/null
+    git -C "${seed}" branch -M main
+    git -C "${seed}" remote add origin "${remote}"
+    git -C "${seed}" push origin main >/dev/null
+
+    mkdir -p "${TMPDIR_TEST}/repos"
+    git clone "${remote}" "${local_repo}" >/dev/null 2>&1
+}
+
 make_repo minor v1.2.3 "feat: add useful thing"
 make_repo major v1.2.3 "feat!: change public contract"
 make_repo patch v1.2.3 "docs: update readme"
 make_repo none v1.2.3 "fix: already tagged"
+make_version_repo badversion '1.$(touch /tmp/agentic-dev-version-pwned).0'
 git -C "${TMPDIR_TEST}/repos/none" tag -f v1.2.4 origin/main >/dev/null
 
 cat > "${TMPDIR_TEST}/gh" <<'MOCK'
@@ -48,6 +72,9 @@ case "$*" in
         ;;
     release\ list\ -R\ acme/none\ --limit\ 100\ --json\ tagName\ --jq\ *)
         printf 'v1.2.4\n'
+        ;;
+    release\ list\ -R\ acme/badversion\ --limit\ 100\ --json\ tagName\ --jq\ *)
+        printf '\n'
         ;;
     release\ list\ -R\ acme/*\ --limit\ 100\ --json\ tagName\ --jq\ *)
         printf 'v1.2.3\n'
@@ -87,6 +114,10 @@ release = true
 [[repos]]
 name = "acme/none"
 release = true
+
+[[repos]]
+name = "acme/badversion"
+release = true
 TOML
 
 "${ROOT}/scripts/release.sh" acme/minor
@@ -106,5 +137,13 @@ after_count="$(wc -l < "${GH_RELEASE_LOG}")"
 "${ROOT}/scripts/release.sh" acme/none
 after_none_count="$(wc -l < "${GH_RELEASE_LOG}")"
 [[ "${after_count}" == "${after_none_count}" ]]
+
+if "${ROOT}/scripts/release.sh" acme/badversion; then
+    echo "malformed VERSION unexpectedly released" >&2
+    exit 1
+fi
+[[ ! -e /tmp/agentic-dev-version-pwned ]]
+after_badversion_count="$(wc -l < "${GH_RELEASE_LOG}")"
+[[ "${after_count}" == "${after_badversion_count}" ]]
 
 echo "release tests passed"

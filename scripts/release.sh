@@ -57,12 +57,18 @@ if [[ -n "${LATEST_TAG}" ]] && [[ -z "$(git -C "${LOCAL_REPO}" log --format=%H "
 fi
 
 base_version() {
+    local version
+    local semver_re='^[0-9]+\.[0-9]+\.[0-9]+$'
     if [[ -n "${LATEST_TAG}" ]]; then
         printf '%s\n' "${LATEST_TAG#v}"
         return
     fi
-    if [[ -f "${LOCAL_REPO}/VERSION" ]]; then
-        tr -d '[:space:]' < "${LOCAL_REPO}/VERSION"
+    if version="$(git -C "${LOCAL_REPO}" show "origin/${DEFAULT_BRANCH}:VERSION" 2>/dev/null | tr -d '[:space:]')"; then
+        if [[ ! "${version}" =~ ${semver_re} ]]; then
+            echo "FATAL: VERSION must be strict numeric SemVer (MAJOR.MINOR.PATCH), got '${version}'" >&2
+            exit 4
+        fi
+        printf '%s\n' "${version}"
         return
     fi
     printf '0.0.0\n'
@@ -105,6 +111,11 @@ next_version() {
     local version="${1}"
     local bump="${2}"
     local major minor patch
+    local semver_re='^[0-9]+\.[0-9]+\.[0-9]+$'
+    if [[ ! "${version}" =~ ${semver_re} ]]; then
+        echo "FATAL: invalid base version '${version}'" >&2
+        exit 4
+    fi
     IFS=. read -r major minor patch <<<"${version}"
     major="${major:-0}"
     minor="${minor:-0}"
