@@ -47,8 +47,8 @@ elif [[ "$*" == "pr list -R acme/app --author dependabot[bot] --state open --lim
 JSON
 elif [[ "$*" == "repo view acme/app --json defaultBranchRef" ]]; then
     printf '{"defaultBranchRef":{"name":"main"}}\n'
-elif [[ "$*" == "release list -R acme/app --limit 1 --json tagName" ]]; then
-    printf '[{"tagName":"v1.0.0"}]\n'
+elif [[ "$*" == "release list -R acme/app --limit 100 --json tagName" ]]; then
+    printf '[{"tagName":"nightly"},{"tagName":"v1.0.0"}]\n'
 elif [[ "$*" == "api -X GET repos/acme/app/compare/v1.0.0...main" ]]; then
     printf '{"ahead_by":2}\n'
 else
@@ -82,5 +82,23 @@ if jq -e '.items[] | select(.kind == "release")' "${TMPDIR_TEST}/report-second.j
     echo "release item emitted despite same-day state" >&2
     exit 1
 fi
+
+cat > "${TMPDIR_TEST}/triage-disabled.toml" <<'TOML'
+[agent]
+login = "WulfAI"
+human_login = "wlfghdr"
+
+[[repos]]
+name = "acme/app"
+dependabot_automerge = true
+release = true
+TOML
+
+PATH="${TMPDIR_TEST}:${PATH}" \
+TRIAGE_CONFIG="${TMPDIR_TEST}/triage-disabled.toml" \
+TRIAGE_STATE_DIR="${TMPDIR_TEST}/disabled-state" \
+"${ROOT}/scripts/detect.py" > "${TMPDIR_TEST}/report-disabled.json" 2>/dev/null
+
+jq -e '.itemCount == 0' "${TMPDIR_TEST}/report-disabled.json"
 
 echo "maintenance detection tests passed"

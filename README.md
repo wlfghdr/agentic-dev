@@ -110,10 +110,10 @@ review   = ["claude", "codex", "kiro", "agy"]  # Code reviews
 rebase   = ["claude", "kiro", "agy", "codex"]  # Conflict resolution
 
 [dependabot]
-enabled = true              # Merge green Dependabot PRs without reviewer LLM cost
+enabled = false             # Opt in to green Dependabot merges without reviewer LLM cost
 
 [release]
-enabled = true              # Daily release if commits exist after latest semver tag
+enabled = false             # Opt in to daily releases when commits exist after latest semver tag
 
 [cli_tools.kiro]
 command = "kiro-cli"
@@ -123,8 +123,8 @@ prompt_mode = "arg"
 [[repos]]
 name = "organization/repository-name"
 automerge = true
-dependabot_automerge = true
-release = true
+dependabot_automerge = false
+release = false
 ```
 
 Built-in command definitions are provided for `codex`, `claude`, `agy`, and

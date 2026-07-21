@@ -36,10 +36,16 @@ esac
 MOCK
 chmod +x "${TMPDIR_TEST}/gh"
 
+cat > "${TMPDIR_TEST}/triage.toml" <<'TOML'
+[[repos]]
+name = "acme/app"
+dependabot_automerge = true
+TOML
+
 export PATH="${TMPDIR_TEST}:${PATH}"
 export TRIAGE_ENABLE_DISPATCH=1
 export TRIAGE_DIR="${TMPDIR_TEST}/triage"
-export TRIAGE_CONFIG="${TMPDIR_TEST}/missing.toml"
+export TRIAGE_CONFIG="${TMPDIR_TEST}/triage.toml"
 export GH_MERGE_LOG="${TMPDIR_TEST}/merges.log"
 
 "${ROOT}/scripts/dependabot_merge.sh" acme/app 1

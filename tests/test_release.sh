@@ -45,6 +45,12 @@ case "$*" in
     repo\ view\ acme/*\ --json\ defaultBranchRef\ --jq\ .defaultBranchRef.name\ //\ \"main\")
         printf 'main\n'
         ;;
+    release\ list\ -R\ acme/none\ --limit\ 100\ --json\ tagName\ --jq\ *)
+        printf 'v1.2.4\n'
+        ;;
+    release\ list\ -R\ acme/*\ --limit\ 100\ --json\ tagName\ --jq\ *)
+        printf 'v1.2.3\n'
+        ;;
     release\ create\ *)
         printf '%s\n' "$*" >> "${GH_RELEASE_LOG}"
         ;;

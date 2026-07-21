@@ -17,6 +17,7 @@ Each item: {
 from __future__ import annotations
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -322,10 +323,14 @@ def default_branch(repo: str) -> str:
 
 
 def repo_has_changes_since_latest_release(repo: str, branch: str) -> bool:
-    latest = gh(["release", "list", "-R", repo, "--limit", "1", "--json", "tagName"])
+    latest = gh(["release", "list", "-R", repo, "--limit", "100", "--json", "tagName"])
     latest_tag = ""
-    if isinstance(latest, list) and latest:
-        latest_tag = latest[0].get("tagName") or ""
+    if isinstance(latest, list):
+        for item in latest:
+            tag = item.get("tagName") or ""
+            if re.match(r"^v[0-9]+\.[0-9]+\.[0-9]+$", tag):
+                latest_tag = tag
+                break
 
     if not latest_tag:
         commits = gh([
@@ -487,7 +492,7 @@ def detect_review_items(repo: str) -> list[dict]:
 
 def detect_dependabot_items(repo: str) -> list[dict]:
     """Open Dependabot PRs that can be handled without a code-review LLM call."""
-    if not config_bool("dependabot", "enabled", True):
+    if not config_bool("dependabot", "enabled", False):
         return []
     if not repo_bool(repo, "dependabot_automerge", True):
         return []
@@ -548,7 +553,7 @@ def detect_dependabot_items(repo: str) -> list[dict]:
 
 def detect_release_items(repo: str) -> list[dict]:
     """Find repos due for a daily deterministic release."""
-    if not config_bool("release", "enabled", True):
+    if not config_bool("release", "enabled", False):
         return []
     if not repo_bool(repo, "release", True):
         return []

@@ -80,8 +80,8 @@ def main():
         key = query.split(".", 1)[1]
         defaults = {
             "automerge": False,
-            "dependabot_automerge": True,
-            "release": True,
+            "dependabot_automerge": False,
+            "release": False,
         }
         repos = config.get("repos", [])
         found = False
