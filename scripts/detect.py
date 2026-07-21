@@ -532,7 +532,16 @@ def detect_dependabot_items(repo: str) -> list[dict]:
         bad = bad_checks(checks)
         pending = pending_checks(checks)
         if bad:
-            skip(repo, pr["number"], f"Dependabot PR has red CI ({check_names(bad)})")
+            mark_live_lock("dependabot", repo, pr["number"])
+            out.append({
+                "kind": "dependabot",
+                "mode": "block",
+                "repo": repo,
+                "number": pr["number"],
+                "title": pr["title"],
+                "url": pr["url"],
+                "reason": f"Dependabot PR has red CI ({check_names(bad)}); handing to human",
+            })
             continue
         if pending:
             skip(repo, pr["number"], f"Dependabot PR has pending CI ({check_names(pending)})")

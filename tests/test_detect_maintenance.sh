@@ -65,12 +65,12 @@ TRIAGE_CONFIG="${TMPDIR_TEST}/triage.toml" \
 TRIAGE_STATE_DIR="${TMPDIR_TEST}/state" \
 "${ROOT}/scripts/detect.py" > "${TMPDIR_TEST}/report.json" 2>"${TMPDIR_TEST}/stderr.log"
 
-jq -e '.itemCount == 3' "${TMPDIR_TEST}/report.json"
+jq -e '.itemCount == 4' "${TMPDIR_TEST}/report.json"
 jq -e '.items[] | select(.kind == "dependabot" and .number == 1 and .mode == "merge")' "${TMPDIR_TEST}/report.json"
+jq -e '.items[] | select(.kind == "dependabot" and .number == 3 and .mode == "block")' "${TMPDIR_TEST}/report.json"
 jq -e '.items[] | select(.kind == "dependabot" and .number == 4 and .mode == "rebase")' "${TMPDIR_TEST}/report.json"
 jq -e '.items[] | select(.kind == "release" and .repo == "acme/app" and .mode == "daily")' "${TMPDIR_TEST}/report.json"
 grep -F "Dependabot PR has pending CI" "${TMPDIR_TEST}/stderr.log"
-grep -F "Dependabot PR has red CI" "${TMPDIR_TEST}/stderr.log"
 grep -F "Dependabot PR has no CI checks" "${TMPDIR_TEST}/stderr.log"
 grep -F "Dependabot PR has non-successful checks" "${TMPDIR_TEST}/stderr.log"
 
@@ -81,7 +81,7 @@ TRIAGE_CONFIG="${TMPDIR_TEST}/triage.toml" \
 TRIAGE_STATE_DIR="${TMPDIR_TEST}/state" \
 "${ROOT}/scripts/detect.py" > "${TMPDIR_TEST}/report-second.json" 2>/dev/null
 
-jq -e '.itemCount == 2' "${TMPDIR_TEST}/report-second.json"
+jq -e '.itemCount == 3' "${TMPDIR_TEST}/report-second.json"
 if jq -e '.items[] | select(.kind == "release")' "${TMPDIR_TEST}/report-second.json" >/dev/null; then
     echo "release item emitted despite same-day state" >&2
     exit 1

@@ -50,6 +50,11 @@ JSON
 {"author":{"login":"app/dependabot"},"isDraft":false,"mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}],"labels":[],"title":"ci(deps): bump actions/checkout","url":"https://example.invalid/pr/8","headRefOid":"def456"}
 JSON
         ;;
+    pr\ view\ 9\ -R\ acme/app\ --json*)
+        cat <<'JSON'
+{"author":{"login":"app/dependabot"},"isDraft":false,"mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"FAILURE"}],"labels":[],"title":"build(deps): bump broken-lib","url":"https://example.invalid/pr/9","headRefOid":"abc123"}
+JSON
+        ;;
     pr\ merge\ 1\ -R\ acme/app\ --squash\ --delete-branch\ --match-head-commit\ abc123)
         printf '%s\n' "$*" >> "${GH_MERGE_LOG}"
         ;;
@@ -72,6 +77,15 @@ JSON
         printf '%s\n' "$*" >> "${GH_API_LOG}"
         ;;
     pr\ comment\ 8\ -R\ acme/app\ --body*)
+        printf '%s\n' "$*" >> "${GH_API_LOG}"
+        ;;
+    api\ -X\ POST\ repos/acme/app/issues/9/labels\ -f\ labels[]=blocked)
+        printf '%s\n' "$*" >> "${GH_API_LOG}"
+        ;;
+    api\ -X\ POST\ repos/acme/app/issues/9/assignees\ -f\ assignees[]=wolf)
+        printf '%s\n' "$*" >> "${GH_API_LOG}"
+        ;;
+    pr\ comment\ 9\ -R\ acme/app\ --body*)
         printf '%s\n' "$*" >> "${GH_API_LOG}"
         ;;
     *)
@@ -138,6 +152,12 @@ if grep -q -- '--auto' "${GH_MERGE_LOG}"; then
     echo "dependabot merge enabled persistent auto-merge" >&2
     exit 1
 fi
+
+"${ROOT}/scripts/dependabot_merge.sh" --block acme/app 9
+[[ "$(wc -l < "${GH_MERGE_LOG}")" == "4" ]]
+grep -Fx "api -X POST repos/acme/app/issues/9/labels -f labels[]=blocked" "${GH_API_LOG}"
+grep -Fx "api -X POST repos/acme/app/issues/9/assignees -f assignees[]=wolf" "${GH_API_LOG}"
+grep -F "completed CI checks are red (ci)" "${GH_API_LOG}"
 
 export TRIAGE_CONFIG="${TMPDIR_TEST}/missing.toml"
 "${ROOT}/scripts/dependabot_merge.sh" acme/app 1

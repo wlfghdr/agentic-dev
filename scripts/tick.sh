@@ -158,6 +158,7 @@ get_lock_mtime() {
                 SCRIPT="${BIN}/dependabot_merge.sh"
                 case "${MODE}" in
                     rebase) CMD_ARGS=(--rebase "${REPO}" "${NUM}") ;;
+                    block)  CMD_ARGS=(--block "${REPO}" "${NUM}") ;;
                     *)      CMD_ARGS=("${REPO}" "${NUM}") ;;
                 esac
                 MAINT_RUNNING=$((MAINT_RUNNING + 1))

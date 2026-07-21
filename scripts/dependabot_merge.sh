@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/dependabot_merge.sh [--rebase] REPO PR_NUMBER
+# scripts/dependabot_merge.sh [--rebase|--block] REPO PR_NUMBER
 # Deterministically merge green Dependabot PRs. If a PR is behind/conflicting,
 # reuse the existing rebase path first; that path only calls an agent on real
 # conflicts.
@@ -8,6 +8,7 @@ set -euo pipefail
 MODE="merge"
 case "${1:-}" in
     --rebase) MODE="rebase"; shift ;;
+    --block) MODE="block"; shift ;;
 esac
 
 REPO="${1:?repo required}"
@@ -56,6 +57,16 @@ block_for_workflow_scope() {
     gh pr comment "${NUM}" -R "${REPO}" --body "${body}" >/dev/null 2>&1 || true
 }
 
+block_for_red_checks() {
+    local checks="${1}"
+    local body
+    body="Dependabot auto-merge blocked: completed CI checks are red (${checks}). Fix or close this dependency PR manually, then remove \`blocked\` if the loop should reconsider it."
+    echo "==> Dependabot PR has red checks; handing back to ${HUMAN_LOGIN}"
+    add_label "${REPO}" "${NUM}" "blocked"
+    add_assignee "${REPO}" "${NUM}" "${HUMAN_LOGIN}"
+    gh pr comment "${NUM}" -R "${REPO}" --body "${body}" >/dev/null 2>&1 || true
+}
+
 if [[ -f "${CONF_FILE}" ]]; then
     CONF_HUMAN=$(python3 "${SCRIPT_DIR}/parse_toml.py" "${CONF_FILE}" "agent.human_login" 2>/dev/null || true)
     if [[ -n "${CONF_HUMAN}" ]]; then HUMAN_LOGIN="${CONF_HUMAN}"; fi
@@ -96,7 +107,17 @@ if echo "${PR_JSON}" | jq -e '(.statusCheckRollup // []) | length == 0' >/dev/nu
 fi
 
 if echo "${PR_JSON}" | jq -e '.statusCheckRollup[]? | select(.conclusion == "FAILURE" or .conclusion == "CANCELLED" or .conclusion == "TIMED_OUT")' >/dev/null; then
+    if [[ "${MODE}" == "block" ]]; then
+        bad_names="$(echo "${PR_JSON}" | jq -r '[.statusCheckRollup[]? | select(.conclusion == "FAILURE" or .conclusion == "CANCELLED" or .conclusion == "TIMED_OUT") | .name // .context // "unnamed check"] | join(", ")')"
+        block_for_red_checks "${bad_names}"
+        exit 0
+    fi
     echo "==> Dependabot PR has red checks; skipping"
+    exit 0
+fi
+
+if [[ "${MODE}" == "block" ]]; then
+    echo "==> Dependabot block requested, but PR no longer has red checks; waiting for next detection"
     exit 0
 fi
 
