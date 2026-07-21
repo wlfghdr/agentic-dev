@@ -15,6 +15,11 @@ sed -n '/^escape_sed_replacement()/,/^}/p; /^escape_systemd_value()/,/^}/p; /^es
 # shellcheck source=/dev/null
 source "${render_helper}"
 
+# Production installs must not derive these paths from /srv/agentic-dev: the
+# triage host keeps repositories and worktrees below /srv/wulfai.
+grep -Fq 'TRIAGE_REPOS_DIR="${TRIAGE_REPOS_DIR:-/srv/wulfai/repos}"' "${ROOT}/install.sh"
+grep -Fq 'TRIAGE_WORKTREES_DIR="${TRIAGE_WORKTREES_DIR:-/srv/wulfai/worktrees}"' "${ROOT}/install.sh"
+
 TRIAGE_DIR="${TMPDIR_TEST}/triage&ops|prod%unit\"quote\\slash"
 TRIAGE_REPOS_DIR="${TMPDIR_TEST}/acme&partners/repos%unit\"quote\\slash"
 TRIAGE_WORKTREES_DIR="${TMPDIR_TEST}/acme|partners/work trees\"quote\\slash"
