@@ -32,3 +32,12 @@ jobs:
 
       - name: Run review verdict regression tests
         run: ./tests/test_review_verdict.sh
+
+      - name: Run maintenance detection regression tests
+        run: ./tests/test_detect_maintenance.sh
+
+      - name: Run Dependabot merge regression tests
+        run: ./tests/test_dependabot_merge.sh
+
+      - name: Run release regression tests
+        run: ./tests/test_release.sh

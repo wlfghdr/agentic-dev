@@ -108,6 +108,7 @@ ${DIFF}
 
 Content checks (binding — flag violations as needs-fix unless trivial):
 - PR body must contain a closing keyword referencing an issue: \`closes #N\`, \`fixes #N\`, or \`resolves #N\` (cross-repo equivalents also OK). Missing link → needs-fix.
+- Agent-authored PR titles must use Conventional Commits format such as \`fix: ...\`, \`feat: ...\`, or \`chore(scope): ...\`. Missing conventional title → needs-fix because releases derive SemVer from merged PR titles/squash commits.
 - Stay scoped to the originating issue. Drive-by refactors are needs-fix.
 
 Out of scope for you (the wrapper enforces these — do NOT flag them as needs-fix):

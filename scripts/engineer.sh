@@ -376,8 +376,9 @@ Rules (binding triage policy — do not relax):
 - Read the repository's rules/guidelines first.
 - Stay scoped to this issue. No drive-by refactors.
 - Run the repo's own tests / linters / checks before declaring done.
-- When ready, commit with a clear message and push the branch.
+- When ready, commit with a Conventional Commit style message and push the branch.
 - Open a PR via \`gh pr create\` (NOT as draft — leave off --draft entirely).
+- The PR title MUST also use Conventional Commits format, e.g. \`fix: ...\`, \`feat: ...\`, or \`chore(scope): ...\`, because the release loop derives SemVer from merged PR titles/squash commits.
 - The PR body MUST contain a line \`Closes #${NUM}\` (or \`Fixes #${NUM}\` / \`Resolves #${NUM}\`) so the repo's issue-link check passes and the issue auto-closes on merge.
 - Do not open a second PR if one already exists for this branch; push another commit instead.
 - PR assignee + labels are handled by the wrapper after you exit — you do not need to touch them.

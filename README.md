@@ -69,12 +69,14 @@ In a mature agentic organization:
 ## Repository Structure
 
 - `scripts/`
-  - `detect.py`: Deterministically scans watched repositories to identify issues assigned to the agent, PRs needing review, and PRs falling behind. *No LLM calls are made here.*
+  - `detect.py`: Deterministically scans watched repositories to identify issues assigned to the agent, PRs needing review, PRs falling behind, Dependabot PRs ready to merge, and repositories due for a release. *No LLM calls are made here.*
   - `tick.sh`: The orchestrator timer script. Acquires item locks, checks concurrency limits, and dispatches tasks to transient `systemd-run` units for safe, parallel execution.
   - `cli_dispatch.sh`: Shared CLI-chain configuration and execution helpers — resolves the configured agent CLI chain and runs prompts against it.
   - `engineer.sh`: Sets up repository worktrees, runs the designated agent chain to write code/resolve conflicts, and pushes results or opens a PR.
   - `review.sh`: Pulls the code, dispatches the reviewer agent chain, runs local verification tests, and posts the review comment with a final `VERDICT`.
   - `merge.sh`: Automatically merges approved PRs if `automerge` is enabled for the repository.
+  - `dependabot_merge.sh`: Deterministically merges green Dependabot PRs; behind/conflicting PRs are rebased first.
+  - `release.sh`: Creates at most one deterministic GitHub release per repo per UTC day when new commits exist after the latest semver tag.
 - `systemd/`
   - `triage-tick.service`: Systemd service to run the orchestrator tick.
   - `triage-tick.timer`: Near-realtime timer that triggers the service every 60 seconds.
@@ -98,6 +100,7 @@ human_login = "human-login"
 [limits]
 max_engineer = 3            # Max parallel engineering dispatches
 max_review = 2              # Max parallel review dispatches
+max_maintenance = 1         # Max parallel Dependabot/release jobs
 open_pr_cap_per_repo = 3    # Cap open PRs per repo to match human approval bandwidth
 lock_ttl_hours = 2          # TTL for stale locks
 
@@ -105,6 +108,12 @@ lock_ttl_hours = 2          # TTL for stale locks
 engineer = ["codex", "claude", "kiro", "agy"]  # Writing code
 review   = ["claude", "codex", "kiro", "agy"]  # Code reviews
 rebase   = ["claude", "kiro", "agy", "codex"]  # Conflict resolution
+
+[dependabot]
+enabled = true              # Merge green Dependabot PRs without reviewer LLM cost
+
+[release]
+enabled = true              # Daily release if commits exist after latest semver tag
 
 [cli_tools.kiro]
 command = "kiro-cli"
@@ -114,6 +123,8 @@ prompt_mode = "arg"
 [[repos]]
 name = "organization/repository-name"
 automerge = true
+dependabot_automerge = true
+release = true
 ```
 
 Built-in command definitions are provided for `codex`, `claude`, `agy`, and
@@ -150,6 +161,11 @@ The loop coordinates through a small set of GitHub labels. Two are **human contr
 | `approved` | `review.sh` | Review verdict `merge-ready` — PR is handed to the human (and auto-merged if `automerge` is enabled for the repo). |
 
 The three review verdicts emitted by `review.sh` map onto labels as: `merge-ready` → `approved`, `needs-fix` → `changes-requested`, `blocked` → `blocked`.
+
+Agent-authored PR titles should follow Conventional Commits (`fix: ...`,
+`feat: ...`, `chore(scope): ...`). The daily release job derives the next
+SemVer version from the merged commit subjects: breaking changes create a major
+bump, `feat` creates a minor bump, and other merged changes create a patch bump.
 
 ---
 
