@@ -32,3 +32,6 @@ jobs:
 
       - name: Run review verdict regression tests
         run: ./tests/test_review_verdict.sh
+
+      - name: Run release workflow regression tests
+        run: ./tests/test_release_workflow.sh
