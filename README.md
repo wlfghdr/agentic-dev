@@ -211,6 +211,10 @@ Run the installation script as root on your VPS or orchestrator host:
 sudo ./install.sh
 ```
 
+Production dispatch defaults to repositories under `/srv/wulfai/repos` and
+worktrees under `/srv/wulfai/worktrees`. Set `TRIAGE_REPOS_DIR` and
+`TRIAGE_WORKTREES_DIR` when running the installer to use different roots.
+
 This will:
 1. Copy all scripts to `/srv/agentic-dev/bin/`.
 2. Initialize directories for state, locks, and history.

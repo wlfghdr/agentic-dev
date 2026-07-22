@@ -29,11 +29,7 @@ jobs:
           open("RELEASE_NOTES.md", "w", encoding="utf-8").write(body + "\n")
           EOF
 
-      - name: Create GitHub release
+      - name: Create GitHub release if needed
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --title "$GITHUB_REF_NAME" \
-            --notes-file RELEASE_NOTES.md \
-            --verify-tag
+        run: .github/scripts/create-release.sh "$GITHUB_REF_NAME" RELEASE_NOTES.md
