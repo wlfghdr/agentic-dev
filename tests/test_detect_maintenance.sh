@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+TMPDIR_TEST="$(mktemp -d)"
+trap 'rm -rf "${TMPDIR_TEST}"' EXIT
+
+cat > "${TMPDIR_TEST}/triage.toml" <<'TOML'
+[agent]
+login = "WulfAI"
+human_login = "wlfghdr"
+
+[dependabot]
+enabled = true
+
+[release]
+enabled = true
+
+[[repos]]
+name = "acme/app"
+dependabot_automerge = true
+release = true
+TOML
+
+cat > "${TMPDIR_TEST}/gh" <<'MOCK'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "$*" == "pr list -R acme/app --state open --limit 50 --json number,labels,assignees,mergeStateStatus,mergeable,author,statusCheckRollup" ]]; then
+    printf '[]\n'
+elif [[ "$*" == "pr list -R acme/app --author WulfAI --state open --limit 50 --json number" ]]; then
+    printf '[]\n'
+elif [[ "$*" == "issue list -R acme/app --assignee WulfAI --state open --limit 50 --json number,title,url,labels" ]]; then
+    printf '[]\n'
+elif [[ "$*" == "pr list -R acme/app --assignee WulfAI --state open --limit 50 --json number" ]]; then
+    printf '[]\n'
+elif [[ "$*" == "pr list -R acme/app --assignee WulfAI --state open --limit 50 --json number,title,url,isDraft,statusCheckRollup,labels,assignees,mergeStateStatus,mergeable" ]]; then
+    printf '[]\n'
+elif [[ "$*" == "pr list -R acme/app --author dependabot[bot] --state open --limit 50 --json number,title,url,isDraft,statusCheckRollup,labels,mergeStateStatus,mergeable,isCrossRepository" ]]; then
+    cat <<'JSON'
+[
+  {"number":1,"title":"build(deps): bump lib-a","url":"https://example.invalid/pr/1","isDraft":false,"statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}],"labels":[],"mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","isCrossRepository":false},
+  {"number":2,"title":"build(deps): bump lib-b","url":"https://example.invalid/pr/2","isDraft":false,"statusCheckRollup":[{"name":"ci","status":"IN_PROGRESS","conclusion":""}],"labels":[],"mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","isCrossRepository":false},
+  {"number":3,"title":"build(deps): bump lib-c","url":"https://example.invalid/pr/3","isDraft":false,"statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"FAILURE"}],"labels":[],"mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","isCrossRepository":false},
+  {"number":4,"title":"build(deps): bump lib-d","url":"https://example.invalid/pr/4","isDraft":false,"statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}],"labels":[],"mergeStateStatus":"DIRTY","mergeable":"CONFLICTING","isCrossRepository":false},
+  {"number":5,"title":"build(deps): bump lib-e","url":"https://example.invalid/pr/5","isDraft":false,"statusCheckRollup":[],"labels":[],"mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","isCrossRepository":false},
+  {"number":6,"title":"build(deps): bump lib-f","url":"https://example.invalid/pr/6","isDraft":false,"statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"ACTION_REQUIRED"}],"labels":[],"mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","isCrossRepository":false}
+]
+JSON
+elif [[ "$*" == "repo view acme/app --json defaultBranchRef" ]]; then
+    printf '{"defaultBranchRef":{"name":"main"}}\n'
+elif [[ "$*" == "release list -R acme/app --limit 100 --json tagName,isDraft" ]]; then
+    printf '[{"tagName":"v9.9.9","isDraft":true},{"tagName":"nightly","isDraft":false},{"tagName":"v1.0.0","isDraft":false}]\n'
+elif [[ "$*" == "api -X GET repos/acme/app/compare/v1.0.0...main" ]]; then
+    printf '{"ahead_by":2}\n'
+else
+    echo "unexpected gh args: $*" >&2
+    exit 99
+fi
+MOCK
+chmod +x "${TMPDIR_TEST}/gh"
+
+PATH="${TMPDIR_TEST}:${PATH}" \
+TRIAGE_CONFIG="${TMPDIR_TEST}/triage.toml" \
+TRIAGE_STATE_DIR="${TMPDIR_TEST}/state" \
+"${ROOT}/scripts/detect.py" > "${TMPDIR_TEST}/report.json" 2>"${TMPDIR_TEST}/stderr.log"
+
+jq -e '.itemCount == 4' "${TMPDIR_TEST}/report.json"
+jq -e '.items[] | select(.kind == "dependabot" and .number == 1 and .mode == "merge")' "${TMPDIR_TEST}/report.json"
+jq -e '.items[] | select(.kind == "dependabot" and .number == 3 and .mode == "block")' "${TMPDIR_TEST}/report.json"
+jq -e '.items[] | select(.kind == "dependabot" and .number == 4 and .mode == "rebase")' "${TMPDIR_TEST}/report.json"
+jq -e '.items[] | select(.kind == "release" and .repo == "acme/app" and .mode == "daily")' "${TMPDIR_TEST}/report.json"
+grep -F "Dependabot PR has pending CI" "${TMPDIR_TEST}/stderr.log"
+grep -F "Dependabot PR has no CI checks" "${TMPDIR_TEST}/stderr.log"
+grep -F "Dependabot PR has non-successful checks" "${TMPDIR_TEST}/stderr.log"
+
+mkdir -p "${TMPDIR_TEST}/state/release"
+jq -n --arg date "$(date -u +%F)" '{date: $date}' > "${TMPDIR_TEST}/state/release/acme_app.json"
+PATH="${TMPDIR_TEST}:${PATH}" \
+TRIAGE_CONFIG="${TMPDIR_TEST}/triage.toml" \
+TRIAGE_STATE_DIR="${TMPDIR_TEST}/state" \
+"${ROOT}/scripts/detect.py" > "${TMPDIR_TEST}/report-second.json" 2>/dev/null
+
+jq -e '.itemCount == 3' "${TMPDIR_TEST}/report-second.json"
+if jq -e '.items[] | select(.kind == "release")' "${TMPDIR_TEST}/report-second.json" >/dev/null; then
+    echo "release item emitted despite same-day state" >&2
+    exit 1
+fi
+
+cat > "${TMPDIR_TEST}/triage-disabled.toml" <<'TOML'
+[agent]
+login = "WulfAI"
+human_login = "wlfghdr"
+
+[[repos]]
+name = "acme/app"
+dependabot_automerge = true
+release = true
+TOML
+
+PATH="${TMPDIR_TEST}:${PATH}" \
+TRIAGE_CONFIG="${TMPDIR_TEST}/triage-disabled.toml" \
+TRIAGE_STATE_DIR="${TMPDIR_TEST}/disabled-state" \
+"${ROOT}/scripts/detect.py" > "${TMPDIR_TEST}/report-disabled.json" 2>/dev/null
+
+jq -e '.itemCount == 0' "${TMPDIR_TEST}/report-disabled.json"
+
+cat > "${TMPDIR_TEST}/triage-omitted-repo-flags.toml" <<'TOML'
+[agent]
+login = "WulfAI"
+human_login = "wlfghdr"
+
+[dependabot]
+enabled = true
+
+[release]
+enabled = true
+
+[[repos]]
+name = "acme/app"
+TOML
+
+PATH="${TMPDIR_TEST}:${PATH}" \
+TRIAGE_CONFIG="${TMPDIR_TEST}/triage-omitted-repo-flags.toml" \
+TRIAGE_STATE_DIR="${TMPDIR_TEST}/omitted-state" \
+"${ROOT}/scripts/detect.py" > "${TMPDIR_TEST}/report-omitted.json" 2>/dev/null
+
+jq -e '.itemCount == 0' "${TMPDIR_TEST}/report-omitted.json"
+
+cat > "${TMPDIR_TEST}/triage-string-flags.toml" <<'TOML'
+[agent]
+login = "WulfAI"
+human_login = "wlfghdr"
+
+[dependabot]
+enabled = "true"
+
+[release]
+enabled = "true"
+
+[[repos]]
+name = "acme/app"
+dependabot_automerge = "true"
+release = "true"
+TOML
+
+PATH="${TMPDIR_TEST}:${PATH}" \
+TRIAGE_CONFIG="${TMPDIR_TEST}/triage-string-flags.toml" \
+TRIAGE_STATE_DIR="${TMPDIR_TEST}/string-state" \
+"${ROOT}/scripts/detect.py" > "${TMPDIR_TEST}/report-string.json" 2>/dev/null
+
+jq -e '.itemCount == 0' "${TMPDIR_TEST}/report-string.json"
+
+cat > "${TMPDIR_TEST}/triage-gh-failure.toml" <<'TOML'
+[agent]
+login = "WulfAI"
+human_login = "wlfghdr"
+
+[dependabot]
+enabled = true
+
+[[repos]]
+name = "acme/app"
+dependabot_automerge = true
+TOML
+
+cat > "${TMPDIR_TEST}/gh" <<'MOCK_FAIL'
+#!/usr/bin/env bash
+echo "rate limited" >&2
+exit 1
+MOCK_FAIL
+chmod +x "${TMPDIR_TEST}/gh"
+
+if PATH="${TMPDIR_TEST}:${PATH}" \
+TRIAGE_CONFIG="${TMPDIR_TEST}/triage-gh-failure.toml" \
+TRIAGE_STATE_DIR="${TMPDIR_TEST}/failure-state" \
+"${ROOT}/scripts/detect.py" > "${TMPDIR_TEST}/report-failure.json" 2>"${TMPDIR_TEST}/stderr-failure.log"; then
+    echo "detect succeeded despite gh failure" >&2
+    exit 1
+fi
+grep -F "detection incomplete" "${TMPDIR_TEST}/stderr-failure.log"
+
+echo "maintenance detection tests passed"

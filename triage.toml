@@ -9,6 +9,8 @@ human_login = "human-login"
 max_engineer = 3
 # Maximum concurrent reviewer agent sessions
 max_review = 2
+# Maximum concurrent deterministic maintenance jobs (Dependabot merge/release)
+max_maintenance = 1
 # Maximum open agent-authored PRs per repository to prevent backlog flooding
 open_pr_cap_per_repo = 3
 # Time-to-live for dispatch locks before they are considered stale (in hours)
@@ -19,6 +21,17 @@ lock_ttl_hours = 2
 engineer = ["codex", "claude", "kiro", "agy"]
 review   = ["claude", "codex", "kiro", "agy"]
 rebase   = ["claude", "kiro", "agy", "codex"]
+
+[dependabot]
+# Merge green Dependabot PRs without a reviewer LLM call. Conflicts go through
+# the rebase path, which only uses an agent if deterministic rebase fails.
+enabled = false
+
+[release]
+# Create at most one GitHub release per watched repo per UTC day if commits
+# exist after the latest semver tag. Version bumps are derived from
+# Conventional Commit style merged PR titles/squash commits.
+enabled = false
 
 # Built-in definitions exist for codex, claude, agy, and kiro. Override one
 # or define another CLI here. Arguments are passed directly without shell
@@ -32,3 +45,5 @@ prompt_mode = "arg" # "arg" appends the prompt; "stdin" pipes it
 [[repos]]
 name = "owner/repo-name"
 automerge = false
+dependabot_automerge = false
+release = false

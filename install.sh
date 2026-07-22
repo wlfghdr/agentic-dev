@@ -63,7 +63,7 @@ fi
 
 # scripts (compiled with dynamic path substitutions)
 triage_dir_escaped="$(escape_sed_replacement "${TRIAGE_DIR}")"
-for script in detect.py tick.sh engineer.sh review.sh merge.sh cli_dispatch.sh parse_toml.py; do
+for script in detect.py tick.sh engineer.sh review.sh merge.sh dependabot_merge.sh release.sh cli_dispatch.sh parse_toml.py; do
     sed "s|/srv/agentic-dev|${triage_dir_escaped}|g" "${REPO_DIR}/scripts/${script}" > "/tmp/${script}"
     install -m 0755 "/tmp/${script}" "${TRIAGE_DIR}/bin/${script}"
     rm -f "/tmp/${script}"

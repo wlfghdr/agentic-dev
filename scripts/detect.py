@@ -5,7 +5,7 @@ Output: JSON report to stdout, state/last-tick.json, and state/history/.
 No LLM calls.
 
 Each item: {
-  "kind": "engineer" | "review",
+  "kind": "engineer" | "review" | "dependabot" | "release",
   "mode": "issue" | "pr",
   "repo": "owner/name",
   "number": 123,
@@ -17,6 +17,7 @@ Each item: {
 from __future__ import annotations
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -111,16 +112,21 @@ HISTORY_RETENTION_DAYS = int(os.environ.get("TRIAGE_HISTORY_RETENTION_DAYS", "14
 limits_config = CONFIG.get("limits", {})
 OPEN_PR_CAP_PER_REPO = int(limits_config.get("open_pr_cap_per_repo", int(os.environ.get("TRIAGE_OPEN_PR_CAP_PER_REPO", "3"))))
 LIVE_LOCK_SLUGS: set[str] = set()
+GH_FAILURES = 0
+DEPENDABOT_LOGIN = os.environ.get("TRIAGE_DEPENDABOT_LOGIN", "dependabot[bot]")
+TODAY_UTC = time.strftime("%Y-%m-%d", time.gmtime())
 
 
 def gh(args: list[str]) -> Any:
-    """Run gh, parse JSON output. Return [] on failure."""
+    """Run gh and parse JSON output. Mark detection incomplete on failure."""
+    global GH_FAILURES
     try:
         r = subprocess.run(
             ["gh"] + args, capture_output=True, text=True, timeout=30, check=True
         )
         return json.loads(r.stdout) if r.stdout.strip() else []
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, json.JSONDecodeError) as e:
+        GH_FAILURES += 1
         print(f"[warn] gh failed for {args[:3]}: {e}", file=sys.stderr)
         return []
 
@@ -155,6 +161,16 @@ def pending_checks(checks: list[dict[str, Any]]) -> list[dict[str, Any]]:
         c
         for c in checks
         if c.get("status") in ("IN_PROGRESS", "QUEUED", "PENDING", "WAITING")
+    ]
+
+
+def non_successful_completed_checks(checks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    acceptable = {"SUCCESS", "NEUTRAL", "SKIPPED"}
+    return [
+        c
+        for c in checks
+        if c.get("status") != "COMPLETED"
+        or (c.get("conclusion") or "").upper() not in acceptable
     ]
 
 
@@ -287,6 +303,64 @@ def assigned_to(pr: dict[str, Any], login: str) -> bool:
 
 def pr_label_names(pr: dict[str, Any]) -> set[str]:
     return {l.get("name") for l in pr.get("labels", []) if l.get("name")}
+
+
+def repo_config(repo: str) -> dict[str, Any]:
+    for item in CONFIG.get("repos", []):
+        if item.get("name") == repo:
+            return item
+    return {}
+
+
+def config_bool(section: str, key: str, default: bool) -> bool:
+    value = CONFIG.get(section, {}).get(key, default)
+    return value is True
+
+
+def repo_bool(repo: str, key: str, default: bool) -> bool:
+    value = repo_config(repo).get(key, default)
+    return value is True
+
+
+def default_branch(repo: str) -> str:
+    data = gh(["repo", "view", repo, "--json", "defaultBranchRef"])
+    if isinstance(data, dict):
+        branch = ((data.get("defaultBranchRef") or {}).get("name") or "").strip()
+        if branch:
+            return branch
+    return "main"
+
+
+def repo_has_changes_since_latest_release(repo: str, branch: str) -> bool:
+    latest = gh(["release", "list", "-R", repo, "--limit", "100", "--json", "tagName,isDraft"])
+    latest_tag = ""
+    if isinstance(latest, list):
+        for item in latest:
+            if item.get("isDraft"):
+                continue
+            tag = item.get("tagName") or ""
+            if re.match(r"^v[0-9]+\.[0-9]+\.[0-9]+$", tag):
+                latest_tag = tag
+                break
+
+    if not latest_tag:
+        commits = gh([
+            "api",
+            "-X", "GET",
+            f"repos/{repo}/commits",
+            "-f", f"sha={branch}",
+            "-f", "per_page=1",
+        ])
+        return isinstance(commits, list) and len(commits) > 0
+
+    compare = gh([
+        "api",
+        "-X", "GET",
+        f"repos/{repo}/compare/{latest_tag}...{branch}",
+    ])
+    if not isinstance(compare, dict):
+        return False
+    return int(compare.get("ahead_by") or 0) > 0
 
 
 def detect_pr_engineer_items(repo: str) -> list[dict]:
@@ -427,6 +501,117 @@ def detect_review_items(repo: str) -> list[dict]:
     return out
 
 
+def detect_dependabot_items(repo: str) -> list[dict]:
+    """Open Dependabot PRs that can be handled without a code-review LLM call."""
+    if not config_bool("dependabot", "enabled", False):
+        return []
+    if not repo_bool(repo, "dependabot_automerge", False):
+        return []
+
+    prs = gh([
+        "pr", "list", "-R", repo,
+        "--author", DEPENDABOT_LOGIN,
+        "--state", "open",
+        "--limit", "50",
+        "--json", "number,title,url,isDraft,statusCheckRollup,labels,mergeStateStatus,mergeable,isCrossRepository",
+    ])
+    if not isinstance(prs, list):
+        return []
+
+    out = []
+    for pr in prs:
+        if pr.get("isDraft"):
+            skip(repo, pr["number"], "draft Dependabot PR")
+            continue
+        labels = pr_label_names(pr)
+        if "do-not-merge" in labels or BLOCKED_LABEL in labels:
+            skip(repo, pr["number"], "Dependabot PR has do-not-merge/blocked label")
+            continue
+
+        checks = pr.get("statusCheckRollup") or []
+        if not checks:
+            skip(repo, pr["number"], "Dependabot PR has no CI checks")
+            continue
+        bad = bad_checks(checks)
+        pending = pending_checks(checks)
+        if bad:
+            mark_live_lock("dependabot", repo, pr["number"])
+            out.append({
+                "kind": "dependabot",
+                "mode": "block",
+                "repo": repo,
+                "number": pr["number"],
+                "title": pr["title"],
+                "url": pr["url"],
+                "reason": f"Dependabot PR has red CI ({check_names(bad)}); handing to human",
+            })
+            continue
+        if pending:
+            skip(repo, pr["number"], f"Dependabot PR has pending CI ({check_names(pending)})")
+            continue
+        unknown = non_successful_completed_checks(checks)
+        if unknown:
+            skip(repo, pr["number"], f"Dependabot PR has non-successful checks ({check_names(unknown)})")
+            continue
+
+        merge_state = (pr.get("mergeStateStatus") or "").upper()
+        mergeable = (pr.get("mergeable") or "").upper()
+        mode = "merge"
+        reason = "Dependabot PR is CI-green and ready for deterministic merge"
+        if merge_state in ("BEHIND", "DIRTY") or mergeable == "CONFLICTING":
+            if pr.get("isCrossRepository"):
+                skip(repo, pr["number"], "cross-repository Dependabot PR cannot be auto-rebased")
+                continue
+            mode = "rebase"
+            reason = "Dependabot PR is behind/conflicting and needs rebase before merge"
+
+        mark_live_lock("dependabot", repo, pr["number"])
+        out.append({
+            "kind": "dependabot",
+            "mode": mode,
+            "repo": repo,
+            "number": pr["number"],
+            "title": pr["title"],
+            "url": pr["url"],
+            "reason": reason,
+        })
+    return out
+
+
+def detect_release_items(repo: str) -> list[dict]:
+    """Find repos due for a daily deterministic release."""
+    if not config_bool("release", "enabled", False):
+        return []
+    if not repo_bool(repo, "release", False):
+        return []
+
+    mark_live_lock("release", repo, "daily")
+    state_file = STATE_DIR / "release" / f"{repo.replace('/', '_')}.json"
+    if state_file.exists():
+        try:
+            state = json.loads(state_file.read_text())
+            if state.get("date") == TODAY_UTC:
+                skip(repo, "release", f"daily release already evaluated on {TODAY_UTC}")
+                return []
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    branch = default_branch(repo)
+    if not repo_has_changes_since_latest_release(repo, branch):
+        skip(repo, "release", "no commits since latest release")
+        return []
+
+    return [{
+        "kind": "release",
+        "mode": "daily",
+        "repo": repo,
+        "number": "daily",
+        "title": f"Daily release for {repo}",
+        "url": f"https://github.com/{repo}/releases",
+        "reason": f"changes exist since latest release and no release ran on {TODAY_UTC}",
+    }]
+
+
 def prune_history(history_dir: Path) -> None:
     if HISTORY_RETENTION_DAYS <= 0:
         return
@@ -444,7 +629,7 @@ def dedupe_items(items: list[dict]) -> list[dict]:
     seen = set()
     out = []
     for item in items:
-        key = (item.get("kind"), item.get("repo"), item.get("number"))
+        key = (item.get("kind"), item.get("repo"), item.get("number"), item.get("mode"))
         if key in seen:
             continue
         seen.add(key)
@@ -456,9 +641,14 @@ def main() -> int:
     items: list[dict] = []
     for repo in WATCH_REPOS:
         demote_stale_approved_prs(repo)
+        items.extend(detect_dependabot_items(repo))
         items.extend(detect_engineer_items(repo))
         items.extend(detect_pr_engineer_items(repo))
         items.extend(detect_review_items(repo))
+        items.extend(detect_release_items(repo))
+    if GH_FAILURES:
+        print(f"[fatal] detection incomplete: {GH_FAILURES} GitHub CLI/API calls failed", file=sys.stderr)
+        return 2
     items = dedupe_items(items)
 
     generated_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())

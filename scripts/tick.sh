@@ -12,15 +12,18 @@ LOGDIR="${TRIAGE_DIR}/logs"
 CONF_FILE="${TRIAGE_CONFIG:-${TRIAGE_DIR}/triage.toml}"
 MAX_ENGINEER="${TRIAGE_MAX_ENGINEER:-3}"
 MAX_REVIEW="${TRIAGE_MAX_REVIEW:-2}"
+MAX_MAINTENANCE="${TRIAGE_MAX_MAINTENANCE:-1}"
 LOCK_TTL_HOURS="2"
 
 if [[ -f "${CONF_FILE}" ]]; then
     CONF_MAX_ENG=$(python3 "$(dirname "${BASH_SOURCE[0]}")/parse_toml.py" "${CONF_FILE}" "limits.max_engineer" 2>/dev/null || true)
     CONF_MAX_REV=$(python3 "$(dirname "${BASH_SOURCE[0]}")/parse_toml.py" "${CONF_FILE}" "limits.max_review" 2>/dev/null || true)
+    CONF_MAX_MAINT=$(python3 "$(dirname "${BASH_SOURCE[0]}")/parse_toml.py" "${CONF_FILE}" "limits.max_maintenance" 2>/dev/null || true)
     CONF_LOCK_TTL=$(python3 "$(dirname "${BASH_SOURCE[0]}")/parse_toml.py" "${CONF_FILE}" "limits.lock_ttl_hours" 2>/dev/null || true)
 
     if [[ -n "${CONF_MAX_ENG}" ]]; then MAX_ENGINEER="${CONF_MAX_ENG}"; fi
     if [[ -n "${CONF_MAX_REV}" ]]; then MAX_REVIEW="${CONF_MAX_REV}"; fi
+    if [[ -n "${CONF_MAX_MAINT}" ]]; then MAX_MAINTENANCE="${CONF_MAX_MAINT}"; fi
     if [[ -n "${CONF_LOCK_TTL}" ]]; then LOCK_TTL_HOURS="${CONF_LOCK_TTL}"; fi
 fi
 
@@ -74,7 +77,7 @@ get_lock_mtime() {
 {
     echo "==> tick start $(date -u +%FT%TZ)"
     echo "==> dispatch enabled: ${DISPATCH_ENABLED}"
-    echo "==> caps: engineer=${MAX_ENGINEER} review=${MAX_REVIEW}"
+    echo "==> caps: engineer=${MAX_ENGINEER} review=${MAX_REVIEW} maintenance=${MAX_MAINTENANCE}"
     echo
 
     DETECT_STDOUT="$(mktemp)"
@@ -100,7 +103,9 @@ get_lock_mtime() {
 
     ENG_RUNNING=$(count_running engineer)
     REV_RUNNING=$(count_running review)
-    echo "==> in-flight: engineer=${ENG_RUNNING} review=${REV_RUNNING}"
+    MAINT_RUNNING=$(count_running dependabot)
+    MAINT_RUNNING=$((MAINT_RUNNING + $(count_running release)))
+    echo "==> in-flight: engineer=${ENG_RUNNING} review=${REV_RUNNING} maintenance=${MAINT_RUNNING}"
 
     # Use process substitution so ENG_RUNNING/REV_RUNNING survive the loop.
     while read -r ITEM; do
@@ -144,6 +149,28 @@ get_lock_mtime() {
                 SCRIPT="${BIN}/review.sh"
                 CMD_ARGS=("${REPO}" "${NUM}")
                 REV_RUNNING=$((REV_RUNNING + 1))
+                ;;
+            dependabot)
+                if (( MAINT_RUNNING >= MAX_MAINTENANCE )); then
+                    echo "skip ${KIND} ${REPO}#${NUM} — maintenance cap reached (${MAINT_RUNNING}/${MAX_MAINTENANCE})"
+                    continue
+                fi
+                SCRIPT="${BIN}/dependabot_merge.sh"
+                case "${MODE}" in
+                    rebase) CMD_ARGS=(--rebase "${REPO}" "${NUM}") ;;
+                    block)  CMD_ARGS=(--block "${REPO}" "${NUM}") ;;
+                    *)      CMD_ARGS=("${REPO}" "${NUM}") ;;
+                esac
+                MAINT_RUNNING=$((MAINT_RUNNING + 1))
+                ;;
+            release)
+                if (( MAINT_RUNNING >= MAX_MAINTENANCE )); then
+                    echo "skip ${KIND} ${REPO}#${NUM} — maintenance cap reached (${MAINT_RUNNING}/${MAX_MAINTENANCE})"
+                    continue
+                fi
+                SCRIPT="${BIN}/release.sh"
+                CMD_ARGS=("${REPO}")
+                MAINT_RUNNING=$((MAINT_RUNNING + 1))
                 ;;
             *)
                 echo "unknown kind: ${KIND}"

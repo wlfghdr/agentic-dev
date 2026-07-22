@@ -75,17 +75,28 @@ def main():
         config = parse_simple_toml(file_path)
         
     # Query path parsing
-    if query == "repos.automerge":
+    if query in ("dependabot.enabled", "release.enabled"):
+        section, key = query.split(".", 1)
+        value = config.get(section, {}).get(key, False)
+        print("true" if value is True else "false")
+    elif query in ("repos.automerge", "repos.dependabot_automerge", "repos.release"):
         repo_name = sys.argv[3] if len(sys.argv) > 3 else ""
+        key = query.split(".", 1)[1]
+        defaults = {
+            "automerge": False,
+            "dependabot_automerge": False,
+            "release": False,
+        }
         repos = config.get("repos", [])
         found = False
         for r in repos:
             if r.get("name") == repo_name:
-                print("true" if r.get("automerge", False) else "false")
+                value = r.get(key, defaults[key])
+                print("true" if value is True else "false")
                 found = True
                 break
         if not found:
-            print("false")
+            print("true" if defaults[key] else "false")
     else:
         parts = query.split(".")
         curr = config
