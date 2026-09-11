@@ -14,17 +14,27 @@ MAX_ENGINEER="${TRIAGE_MAX_ENGINEER:-3}"
 MAX_REVIEW="${TRIAGE_MAX_REVIEW:-2}"
 MAX_MAINTENANCE="${TRIAGE_MAX_MAINTENANCE:-1}"
 LOCK_TTL_HOURS="2"
+DISPATCH_ENV_FILE="${TRIAGE_DISPATCH_ENV_FILE:-}"
 
 if [[ -f "${CONF_FILE}" ]]; then
     CONF_MAX_ENG=$(python3 "$(dirname "${BASH_SOURCE[0]}")/parse_toml.py" "${CONF_FILE}" "limits.max_engineer" 2>/dev/null || true)
     CONF_MAX_REV=$(python3 "$(dirname "${BASH_SOURCE[0]}")/parse_toml.py" "${CONF_FILE}" "limits.max_review" 2>/dev/null || true)
     CONF_MAX_MAINT=$(python3 "$(dirname "${BASH_SOURCE[0]}")/parse_toml.py" "${CONF_FILE}" "limits.max_maintenance" 2>/dev/null || true)
     CONF_LOCK_TTL=$(python3 "$(dirname "${BASH_SOURCE[0]}")/parse_toml.py" "${CONF_FILE}" "limits.lock_ttl_hours" 2>/dev/null || true)
+    CONF_DISPATCH_ENV_FILE=$(python3 "$(dirname "${BASH_SOURCE[0]}")/parse_toml.py" "${CONF_FILE}" "runtime.dispatch_env_file" 2>/dev/null || true)
 
     if [[ -n "${CONF_MAX_ENG}" ]]; then MAX_ENGINEER="${CONF_MAX_ENG}"; fi
     if [[ -n "${CONF_MAX_REV}" ]]; then MAX_REVIEW="${CONF_MAX_REV}"; fi
     if [[ -n "${CONF_MAX_MAINT}" ]]; then MAX_MAINTENANCE="${CONF_MAX_MAINT}"; fi
     if [[ -n "${CONF_LOCK_TTL}" ]]; then LOCK_TTL_HOURS="${CONF_LOCK_TTL}"; fi
+    if [[ -z "${DISPATCH_ENV_FILE}" && -n "${CONF_DISPATCH_ENV_FILE}" ]]; then
+        DISPATCH_ENV_FILE="${CONF_DISPATCH_ENV_FILE}"
+    fi
+fi
+
+if [[ -n "${DISPATCH_ENV_FILE}" && "${DISPATCH_ENV_FILE}" != /* ]]; then
+    echo "FATAL: runtime.dispatch_env_file must be an absolute path" >&2
+    exit 2
 fi
 
 LOCK_TTL=$((LOCK_TTL_HOURS * 3600))  # failsafe; cleanly-exited dispatchers drop their lock immediately
@@ -189,6 +199,15 @@ get_lock_mtime() {
 
         UNIT="agentic-dispatch-${SLUG}.service"
 
+        SYSTEMD_PROPERTIES=(
+            --property=TimeoutStartSec=6h
+            --property=KillMode=mixed
+        )
+        if [[ -n "${DISPATCH_ENV_FILE}" ]]; then
+            # A missing optional credentials file must not prevent dispatch.
+            SYSTEMD_PROPERTIES+=(--property="EnvironmentFile=-${DISPATCH_ENV_FILE}")
+        fi
+
         # Build a one-line bash command that runs the script and drops the lock on success.
         # %q-quote each arg so spaces / shell metachars in titles never bite.
         printf -v QUOTED_ARGS '%q ' "${CMD_ARGS[@]}"
@@ -207,8 +226,7 @@ get_lock_mtime() {
             --setenv="TRIAGE_REPOS_DIR=${TRIAGE_REPOS_DIR:-/srv/agentic-dev/../repos}" \
             --setenv="TRIAGE_WORKTREES_DIR=${TRIAGE_WORKTREES_DIR:-/srv/agentic-dev/../worktrees}" \
             --setenv="TRIAGE_CONFIG=${CONF_FILE}" \
-            --property=TimeoutStartSec=6h \
-            --property=KillMode=mixed \
+            "${SYSTEMD_PROPERTIES[@]}" \
             /bin/bash -c "${WRAPPED}"; then
             echo "WARN: systemd-run failed for ${UNIT}; releasing lock" >&2
             rm -f "${LOCK}"

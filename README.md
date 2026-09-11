@@ -104,6 +104,10 @@ max_maintenance = 1         # Max parallel Dependabot/release jobs
 open_pr_cap_per_repo = 3    # Cap open PRs per repo to match human approval bandwidth
 lock_ttl_hours = 2          # TTL for stale locks
 
+[runtime]
+# Optional host-local environment file forwarded to transient dispatch units.
+dispatch_env_file = "/etc/agentic-dev/dispatch.env"
+
 [cli_chain]
 engineer = ["codex", "claude", "kiro", "agy"]  # Writing code
 review   = ["claude", "codex", "kiro", "agy"]  # Code reviews
@@ -125,6 +129,8 @@ name = "organization/repository-name"
 automerge = true
 dependabot_automerge = false
 release = false
+# Optional: "ios" reads MARKETING_VERSION; "android" reads versionName.
+version_source = "ios"
 ```
 
 Built-in command definitions are provided for `codex`, `claude`, `agy`, and
@@ -209,6 +215,17 @@ Run the installation script as root on your VPS or orchestrator host:
 
 ```bash
 sudo ./install.sh
+```
+
+For an isolated, non-root validation install, redirect the host integration
+targets and disable `systemctl` mutations:
+
+```bash
+TRIAGE_DIR=/tmp/agentic-dev-runtime \
+TRIAGE_SYSTEMD_DIR=/tmp/agentic-dev-systemd \
+TRIAGE_LOGROTATE_DIR=/tmp/agentic-dev-logrotate \
+TRIAGE_SKIP_SYSTEMD=1 \
+./install.sh
 ```
 
 Production dispatch defaults to repositories under `/srv/wulfai/repos` and

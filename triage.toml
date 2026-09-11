@@ -16,6 +16,11 @@ open_pr_cap_per_repo = 3
 # Time-to-live for dispatch locks before they are considered stale (in hours)
 lock_ttl_hours = 2
 
+[runtime]
+# Optional host-local environment file forwarded to transient dispatch units.
+# Keep credentials outside Git and configure an absolute path on the host.
+# dispatch_env_file = "/etc/agentic-dev/dispatch.env"
+
 [cli_chain]
 # Order of tool CLI execution to fallback on errors (e.g. rate limits)
 engineer = ["codex", "claude", "kiro", "agy"]
@@ -47,3 +52,6 @@ name = "owner/repo-name"
 automerge = false
 dependabot_automerge = false
 release = false
+# Optional mobile app version source: "ios" reads MARKETING_VERSION and
+# "android" reads versionName. Omit to derive SemVer from commits/tags.
+# version_source = "ios"

@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+TEST_ROOT="$(mktemp -d)"
+trap 'rm -rf "${TEST_ROOT}"' EXIT
+
+RUNTIME="${TEST_ROOT}/runtime"
+mkdir -p "${RUNTIME}/bin" "${RUNTIME}/state" "${RUNTIME}/logs" "${TEST_ROOT}/mock-bin"
+install -m 0755 "${ROOT}/scripts/tick.sh" "${RUNTIME}/bin/tick.sh"
+install -m 0755 "${ROOT}/scripts/parse_toml.py" "${RUNTIME}/bin/parse_toml.py"
+
+cat > "${RUNTIME}/bin/detect.py" <<'MOCK'
+#!/usr/bin/env bash
+cat <<'JSON'
+{"itemCount":1,"liveLockSlugs":["engineer-acme_app-7"],"items":[{"kind":"engineer","mode":"issue","repo":"acme/app","number":7,"title":"test","url":"https://example.invalid/7"}]}
+JSON
+MOCK
+
+cat > "${RUNTIME}/bin/engineer.sh" <<'MOCK'
+#!/usr/bin/env bash
+exit 0
+MOCK
+
+cat > "${TEST_ROOT}/mock-bin/systemctl" <<'MOCK'
+#!/usr/bin/env bash
+[[ "${1:-}" == "list-units" ]] && exit 0
+exit 0
+MOCK
+
+cat > "${TEST_ROOT}/mock-bin/systemd-run" <<'MOCK'
+#!/usr/bin/env bash
+printf '%s\n' "$@" > "${SYSTEMD_RUN_ARGS}"
+[[ "${FAIL_SYSTEMD_RUN:-0}" != "1" ]]
+MOCK
+chmod +x "${RUNTIME}/bin/"* "${TEST_ROOT}/mock-bin/"*
+
+cat > "${RUNTIME}/triage.toml" <<TOML
+[limits]
+max_engineer = 1
+
+[runtime]
+dispatch_env_file = "${TEST_ROOT}/dispatch.env"
+TOML
+
+SYSTEMD_RUN_ARGS="${TEST_ROOT}/systemd-run.args" \
+PATH="${TEST_ROOT}/mock-bin:${PATH}" \
+TRIAGE_DIR="${RUNTIME}" \
+TRIAGE_ENABLE_DISPATCH=1 \
+"${RUNTIME}/bin/tick.sh" >/dev/null
+
+grep -Fx -- "--property=EnvironmentFile=-${TEST_ROOT}/dispatch.env" "${TEST_ROOT}/systemd-run.args"
+
+# A dispatcher creation failure must not strand the item lock.
+rm -f "${RUNTIME}/state/locks/engineer-acme_app-7.lock"
+FAIL_SYSTEMD_RUN=1 \
+SYSTEMD_RUN_ARGS="${TEST_ROOT}/systemd-run-failed.args" \
+PATH="${TEST_ROOT}/mock-bin:${PATH}" \
+TRIAGE_DIR="${RUNTIME}" \
+TRIAGE_ENABLE_DISPATCH=1 \
+"${RUNTIME}/bin/tick.sh" >/dev/null
+[[ ! -e "${RUNTIME}/state/locks/engineer-acme_app-7.lock" ]]
+
+cat > "${RUNTIME}/triage.toml" <<'TOML'
+[runtime]
+dispatch_env_file = "relative/dispatch.env"
+TOML
+
+if PATH="${TEST_ROOT}/mock-bin:${PATH}" TRIAGE_DIR="${RUNTIME}" "${RUNTIME}/bin/tick.sh" >"${TEST_ROOT}/invalid.out" 2>&1; then
+    echo "relative runtime.dispatch_env_file unexpectedly accepted" >&2
+    exit 1
+fi
+grep -F "must be an absolute path" "${TEST_ROOT}/invalid.out"
+
+echo "tick dispatch tests passed"
