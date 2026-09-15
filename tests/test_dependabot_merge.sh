@@ -55,6 +55,11 @@ JSON
 {"author":{"login":"app/dependabot"},"isDraft":false,"mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"FAILURE"}],"labels":[],"title":"build(deps): bump broken-lib","url":"https://example.invalid/pr/9","headRefOid":"abc123"}
 JSON
         ;;
+    pr\ view\ 10\ -R\ acme/app\ --json*)
+        cat <<'JSON'
+{"author":{"login":"dependabot[bot]"},"isDraft":false,"mergeStateStatus":"BEHIND","mergeable":"MERGEABLE","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}],"labels":[],"title":"build(deps): bump behind-lib","url":"https://example.invalid/pr/10","headRefOid":"abc123"}
+JSON
+        ;;
     pr\ merge\ 1\ -R\ acme/app\ --squash\ --delete-branch\ --match-head-commit\ abc123)
         printf '%s\n' "$*" >> "${GH_MERGE_LOG}"
         ;;
@@ -158,6 +163,22 @@ fi
 grep -Fx "api -X POST repos/acme/app/issues/9/labels -f labels[]=blocked" "${GH_API_LOG}"
 grep -Fx "api -X POST repos/acme/app/issues/9/assignees -f assignees[]=wolf" "${GH_API_LOG}"
 grep -F "completed CI checks are red (ci)" "${GH_API_LOG}"
+
+# Rebase mode must route through the shared engineer rebase worker and wait for
+# a later CI-observing tick instead of attempting a merge immediately.
+REBASE_BIN="${TMPDIR_TEST}/rebase-bin"
+mkdir -p "${REBASE_BIN}"
+install -m 0755 "${ROOT}/scripts/dependabot_merge.sh" "${REBASE_BIN}/dependabot_merge.sh"
+install -m 0755 "${ROOT}/scripts/parse_toml.py" "${REBASE_BIN}/parse_toml.py"
+cat > "${REBASE_BIN}/engineer.sh" <<'MOCK_REBASE'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${REBASE_CALLS}"
+MOCK_REBASE
+chmod +x "${REBASE_BIN}/engineer.sh"
+export REBASE_CALLS="${TMPDIR_TEST}/rebase-calls.log"
+"${REBASE_BIN}/dependabot_merge.sh" --rebase acme/app 10
+grep -Fx -- '--rebase acme/app 10' "${REBASE_CALLS}"
+[[ "$(wc -l < "${GH_MERGE_LOG}")" == "4" ]]
 
 export TRIAGE_CONFIG="${TMPDIR_TEST}/missing.toml"
 "${ROOT}/scripts/dependabot_merge.sh" acme/app 1

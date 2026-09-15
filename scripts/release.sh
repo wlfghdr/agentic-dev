@@ -49,6 +49,11 @@ if [[ "${repo_release_enabled}" != "True" && "${repo_release_enabled}" != "true"
     exit 0
 fi
 
+VERSION_SOURCE=""
+if [[ -f "${CONF_FILE}" ]]; then
+    VERSION_SOURCE="$(python3 "$(dirname "${BASH_SOURCE[0]}")/parse_toml.py" "${CONF_FILE}" "repos.version_source" "${REPO}" 2>/dev/null || true)"
+fi
+
 if [[ -f "${STATE_FILE}" ]] && jq -e --arg today "${TODAY_UTC}" '.date == $today' "${STATE_FILE}" >/dev/null 2>&1; then
     echo "==> daily release already evaluated on ${TODAY_UTC}"
     exit 0
@@ -57,8 +62,13 @@ fi
 DEFAULT_BRANCH="$(gh repo view "${REPO}" --json defaultBranchRef --jq '.defaultBranchRef.name // "main"')"
 git -C "${LOCAL_REPO}" fetch --quiet --tags origin "${DEFAULT_BRANCH}"
 HEAD_SHA="$(git -C "${LOCAL_REPO}" rev-parse "origin/${DEFAULT_BRANCH}")"
-LATEST_TAG="$(gh release list -R "${REPO}" --limit 100 --json tagName,isDraft \
-    --jq '[.[] | select((.isDraft // false) | not) | .tagName | select(test("^v[0-9]+\\\\.[0-9]+\\\\.[0-9]+$"))][0] // ""')"
+LATEST_RELEASES="$(gh release list -R "${REPO}" --limit 100 --json tagName,isDraft)"
+LATEST_TAG="$(jq -r '
+    [.[] | select((.isDraft // false) | not) | .tagName
+        | select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))]
+    | sort_by(.[1:] | split(".") | map(tonumber))
+    | last // ""
+' <<<"${LATEST_RELEASES}")"
 
 if [[ -n "${LATEST_TAG}" ]] && [[ -z "$(git -C "${LOCAL_REPO}" log --format=%H "${LATEST_TAG}..origin/${DEFAULT_BRANCH}")" ]]; then
     echo "==> no commits since latest release tag ${LATEST_TAG}"
@@ -110,6 +120,51 @@ determine_bump() {
     echo "${bump}"
 }
 
+app_version() {
+    local source="${1}"
+    local values=""
+    local version=""
+    local semver_re='^[0-9]+(\.[0-9]+){0,2}$'
+
+    case "${source}" in
+        ios)
+            values="$(git -C "${LOCAL_REPO}" grep -h 'MARKETING_VERSION' "origin/${DEFAULT_BRANCH}" -- '*.pbxproj' 2>/dev/null \
+                | sed -E 's/.*MARKETING_VERSION[[:space:]]*=[[:space:]]*([^;]+);.*/\1/' \
+                | tr -d ' \t"' | sort -u)"
+            ;;
+        android)
+            values="$(git -C "${LOCAL_REPO}" grep -h 'versionName' "origin/${DEFAULT_BRANCH}" -- '*.gradle.kts' '*.gradle' 2>/dev/null \
+                | sed -E 's/.*versionName[[:space:]]*=?[[:space:]]*"([^"]+)".*/\1/' \
+                | tr -d ' \t' | sort -u)"
+            ;;
+        *)
+            echo "FATAL: unknown version_source '${source}'" >&2
+            exit 5
+            ;;
+    esac
+
+    if [[ -z "${values}" ]]; then
+        echo "FATAL: version_source '${source}' configured but no version found in ${REPO}" >&2
+        exit 5
+    fi
+    if [[ "$(wc -l <<<"${values}")" -ne 1 ]]; then
+        echo "FATAL: conflicting app versions in ${REPO}: $(tr '\n' ' ' <<<"${values}")" >&2
+        exit 5
+    fi
+
+    version="${values}"
+    if [[ ! "${version}" =~ ${semver_re} ]]; then
+        echo "FATAL: unparsable app version '${version}' in ${REPO}" >&2
+        exit 5
+    fi
+    case "${version}" in
+        *.*.*) ;;
+        *.*) version="${version}.0" ;;
+        *) version="${version}.0.0" ;;
+    esac
+    printf '%s\n' "${version}"
+}
+
 next_version() {
     local version="${1}"
     local bump="${2}"
@@ -138,18 +193,29 @@ if [[ -z "${commits}" ]]; then
     exit 0
 fi
 
-bump="$(determine_bump "${range}")"
-tag="$(next_version "$(base_version)" "${bump}")"
-
-if git -C "${LOCAL_REPO}" rev-parse --verify --quiet "${tag}" >/dev/null; then
-    echo "FATAL: computed tag ${tag} already exists" >&2
-    exit 3
+if [[ -n "${VERSION_SOURCE}" ]]; then
+    tag="v$(app_version "${VERSION_SOURCE}")"
+    bump="${VERSION_SOURCE} manifest"
+    bump_note="Version taken from the ${VERSION_SOURCE} app manifest (no inferred bump)."
+    echo "==> version_source=${VERSION_SOURCE} -> ${tag}"
+    if git -C "${LOCAL_REPO}" rev-parse --verify --quiet "${tag}" >/dev/null; then
+        echo "==> ${tag} already released — bump the app version to cut a new release"
+        exit 0
+    fi
+else
+    bump="$(determine_bump "${range}")"
+    tag="$(next_version "$(base_version)" "${bump}")"
+    bump_note="Semver bump: \`${bump}\`."
+    if git -C "${LOCAL_REPO}" rev-parse --verify --quiet "${tag}" >/dev/null; then
+        echo "FATAL: computed tag ${tag} already exists" >&2
+        exit 3
+    fi
 fi
 
 notes="$(mktemp)"
 {
     printf 'Automated daily release for `%s`.\n\n' "${REPO}"
-    printf 'Semver bump: `%s`.\n\n' "${bump}"
+    printf '%s\n\n' "${bump_note}"
     printf 'Changes:\n'
     printf '%s\n' "${commits}"
 } > "${notes}"

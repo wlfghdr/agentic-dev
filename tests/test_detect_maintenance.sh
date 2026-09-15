@@ -50,8 +50,8 @@ JSON
 elif [[ "$*" == "repo view acme/app --json defaultBranchRef" ]]; then
     printf '{"defaultBranchRef":{"name":"main"}}\n'
 elif [[ "$*" == "release list -R acme/app --limit 100 --json tagName,isDraft" ]]; then
-    printf '[{"tagName":"v9.9.9","isDraft":true},{"tagName":"nightly","isDraft":false},{"tagName":"v1.0.0","isDraft":false}]\n'
-elif [[ "$*" == "api -X GET repos/acme/app/compare/v1.0.0...main" ]]; then
+    printf '[{"tagName":"v9.9.9","isDraft":true},{"tagName":"v1.0.0","isDraft":false},{"tagName":"nightly","isDraft":false},{"tagName":"v2.0.0","isDraft":false},{"tagName":"v0.9.9","isDraft":false}]\n'
+elif [[ "$*" == "api -X GET repos/acme/app/compare/v2.0.0...main" ]]; then
     printf '{"ahead_by":2}\n'
 else
     echo "unexpected gh args: $*" >&2

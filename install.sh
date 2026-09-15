@@ -19,10 +19,27 @@
 
 set -euo pipefail
 
-if [[ $EUID -ne 0 ]]; then
+TRIAGE_SKIP_SYSTEMD="${TRIAGE_SKIP_SYSTEMD:-0}"
+TRIAGE_SYSTEMD_DIR="${TRIAGE_SYSTEMD_DIR:-/etc/systemd/system}"
+TRIAGE_LOGROTATE_DIR="${TRIAGE_LOGROTATE_DIR:-/etc/logrotate.d}"
+
+if [[ $EUID -ne 0 && "${TRIAGE_SKIP_SYSTEMD}" != "1" ]]; then
     echo "must run as root" >&2
     exit 1
 fi
+
+if [[ "${TRIAGE_SKIP_SYSTEMD}" == "1" ]] && \
+   { [[ "${TRIAGE_SYSTEMD_DIR}" == "/etc/systemd/system" ]] || [[ "${TRIAGE_LOGROTATE_DIR}" == "/etc/logrotate.d" ]]; }; then
+    echo "sandbox install requires redirected TRIAGE_SYSTEMD_DIR and TRIAGE_LOGROTATE_DIR" >&2
+    exit 1
+fi
+
+for install_dir in "${TRIAGE_SYSTEMD_DIR}" "${TRIAGE_LOGROTATE_DIR}"; do
+    if [[ "${install_dir}" != /* ]]; then
+        echo "install target must be an absolute path: ${install_dir}" >&2
+        exit 1
+    fi
+done
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TRIAGE_DIR="${TRIAGE_DIR:-/srv/agentic-dev}"
@@ -51,7 +68,9 @@ mkdir -p "${TRIAGE_DIR}/bin" \
          "${TRIAGE_DIR}/state/done" \
          "${TRIAGE_DIR}/state/locks" \
          "${TRIAGE_DIR}/state/history" \
-         "${TRIAGE_DIR}/logs"
+         "${TRIAGE_DIR}/logs" \
+         "${TRIAGE_SYSTEMD_DIR}" \
+         "${TRIAGE_LOGROTATE_DIR}"
 
 # install triage.toml template if it doesn't exist
 if [[ ! -f "${TRIAGE_DIR}/triage.toml" ]]; then
@@ -87,9 +106,9 @@ render_template() {
 
 # systemd units
 render_template "${REPO_DIR}/systemd/triage-tick.service" /tmp/triage-tick.service
-install -m 0644 /tmp/triage-tick.service /etc/systemd/system/triage-tick.service
+install -m 0644 /tmp/triage-tick.service "${TRIAGE_SYSTEMD_DIR}/triage-tick.service"
 rm -f /tmp/triage-tick.service
-install -m 0644 "${REPO_DIR}/systemd/triage-tick.timer"   /etc/systemd/system/triage-tick.timer
+install -m 0644 "${REPO_DIR}/systemd/triage-tick.timer" "${TRIAGE_SYSTEMD_DIR}/triage-tick.timer"
 
 # Versioned drop-ins (production overrides that belong in Git, not local edits).
 # Sync the on-disk drop-in dirs to exactly what the repo ships:
@@ -99,7 +118,7 @@ install -m 0644 "${REPO_DIR}/systemd/triage-tick.timer"   /etc/systemd/system/tr
 #   - remove the drop-in dir if the repo has nothing for the unit
 for unit in triage-tick.timer triage-tick.service; do
     src_dir="${REPO_DIR}/systemd/${unit}.d"
-    dropin_dir="/etc/systemd/system/${unit}.d"
+    dropin_dir="${TRIAGE_SYSTEMD_DIR}/${unit}.d"
 
     if [[ -d "${src_dir}" ]]; then
         mkdir -p "${dropin_dir}"
@@ -131,14 +150,20 @@ done
 
 # local log retention
 sed "s|/srv/agentic-dev|${triage_dir_escaped}|g" "${REPO_DIR}/logrotate/agentic-triage" > /tmp/agentic-triage
-install -m 0644 /tmp/agentic-triage /etc/logrotate.d/agentic-triage
+install -m 0644 /tmp/agentic-triage "${TRIAGE_LOGROTATE_DIR}/agentic-triage"
 rm -f /tmp/agentic-triage
 
-systemctl daemon-reload
-systemctl enable triage-tick.timer
+if [[ "${TRIAGE_SKIP_SYSTEMD}" == "1" ]]; then
+    echo "==> sandbox install: systemctl reload/enable skipped"
+else
+    systemctl daemon-reload
+    systemctl enable triage-tick.timer
+fi
 
 echo "==> installed. status:"
-systemctl list-timers triage-tick.timer --no-pager || true
+if [[ "${TRIAGE_SKIP_SYSTEMD}" != "1" ]]; then
+    systemctl list-timers triage-tick.timer --no-pager || true
+fi
 
 echo
 echo "Next steps:"

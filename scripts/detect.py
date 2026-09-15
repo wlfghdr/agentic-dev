@@ -331,17 +331,22 @@ def default_branch(repo: str) -> str:
     return "main"
 
 
+def highest_semver_tag(releases: list[dict[str, Any]]) -> str:
+    """Return the numerically highest published vMAJOR.MINOR.PATCH tag."""
+    candidates: list[tuple[tuple[int, int, int], str]] = []
+    for item in releases:
+        if item.get("isDraft"):
+            continue
+        tag = item.get("tagName") or ""
+        match = re.fullmatch(r"v([0-9]+)\.([0-9]+)\.([0-9]+)", tag)
+        if match:
+            candidates.append((tuple(map(int, match.groups())), tag))
+    return max(candidates, default=((0, 0, 0), ""))[1]
+
+
 def repo_has_changes_since_latest_release(repo: str, branch: str) -> bool:
     latest = gh(["release", "list", "-R", repo, "--limit", "100", "--json", "tagName,isDraft"])
-    latest_tag = ""
-    if isinstance(latest, list):
-        for item in latest:
-            if item.get("isDraft"):
-                continue
-            tag = item.get("tagName") or ""
-            if re.match(r"^v[0-9]+\.[0-9]+\.[0-9]+$", tag):
-                latest_tag = tag
-                break
+    latest_tag = highest_semver_tag(latest) if isinstance(latest, list) else ""
 
     if not latest_tag:
         commits = gh([

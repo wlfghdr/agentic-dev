@@ -24,6 +24,15 @@ jobs:
       - name: Run cli_dispatch regression tests
         run: ./tests/test_cli_dispatch.sh
 
+      - name: Run tick dispatch regression tests
+        run: ./tests/test_tick_dispatch.sh
+
+      - name: Run agent loop end-to-end tests
+        run: ./tests/test_agent_loop_e2e.sh
+
+      - name: Run engineer rebase integration tests
+        run: ./tests/test_engineer_rebase.sh
+
       - name: Run install rendering regression tests
         run: ./tests/test_install_rendering.sh
 

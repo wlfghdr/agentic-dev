@@ -325,6 +325,14 @@ elif [[ "${rc}" -eq 3 ]]; then
     remove_assignee_from "${REPO}" "${NUM}" "${AGENT_LOGIN}"
     gh api -X POST "repos/${REPO}/pulls/${NUM}/requested_reviewers" -f "reviewers[]=${HUMAN_LOGIN}" >/dev/null 2>&1 || true
 
+    for issue_num in $(echo "${PR_JSON}" | jq -r '.closingIssuesReferences[].number' 2>/dev/null || true); do
+        if [[ -n "${issue_num}" && "${issue_num}" != "null" ]]; then
+            echo "==> Handing over originating issue #${issue_num} to ${HUMAN_LOGIN}"
+            add_assignee_to "${REPO}" "${issue_num}" "${HUMAN_LOGIN}"
+            remove_assignee_from "${REPO}" "${issue_num}" "${AGENT_LOGIN}"
+        fi
+    done
+
     CLEANED_OUT=$(mktemp)
     cat > "${CLEANED_OUT}" <<EOF
 ### Review Summary

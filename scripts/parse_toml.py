@@ -97,6 +97,14 @@ def main():
                 break
         if not found:
             print("true" if defaults[key] else "false")
+    elif query == "repos.version_source":
+        repo_name = sys.argv[3] if len(sys.argv) > 3 else ""
+        for repo in config.get("repos", []):
+            if repo.get("name") == repo_name:
+                value = repo.get("version_source", "")
+                if isinstance(value, str) and value:
+                    print(value)
+                break
     else:
         parts = query.split(".")
         curr = config
