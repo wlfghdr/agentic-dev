@@ -90,7 +90,7 @@ def pr_metadata():
         "headRefName": "agentic-dev/issue-1",
         "author": {"login": "agent"},
         "files": [{"path": "app.txt"}],
-        "closingIssuesReferences": [{"number": 1}],
+        "closingIssuesReferences": [{"number": 1, "repository": {"nameWithOwner": "acme/app"}}],
         "reviewDecision": "",
         "reviews": [],
         "comments": [],
