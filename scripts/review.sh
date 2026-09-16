@@ -62,12 +62,32 @@ remove_label() {
 }
 add_assignee_to() {
     # add_assignee_to REPO ISSUE_OR_PR ASSIGNEE
-    gh api -X POST "repos/${1}/issues/${2}/assignees" -f "assignees[]=${3}" >/dev/null 2>&1 || \
-        echo "WARN: failed to add assignee '${3}' to ${1}#${2}" >&2
+    if gh api -X POST "repos/${1}/issues/${2}/assignees" -f "assignees[]=${3}" >/dev/null 2>&1; then
+        return 0
+    fi
+    echo "WARN: failed to add assignee '${3}' to ${1}#${2}" >&2
+    return 1
 }
 remove_assignee_from() {
     # remove_assignee_from REPO ISSUE_OR_PR ASSIGNEE
-    gh api -X DELETE "repos/${1}/issues/${2}/assignees" -f "assignees[]=${3}" >/dev/null 2>&1 || true
+    gh api -X DELETE "repos/${1}/issues/${2}/assignees" -f "assignees[]=${3}" >/dev/null 2>&1 || \
+        echo "WARN: failed to remove assignee '${3}' from ${1}#${2}" >&2
+}
+handoff_closing_issues() {
+    local issue_repo issue_num
+
+    while IFS='|' read -r issue_repo issue_num; do
+        if [[ ! "${issue_repo}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] ||
+           [[ ! "${issue_num}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "WARN: skipping closing issue reference with incomplete or invalid repository identity: ${issue_repo:-<missing>}#${issue_num:-<missing>}" >&2
+            continue
+        fi
+
+        echo "==> Handing over originating issue ${issue_repo}#${issue_num} to ${HUMAN_LOGIN}"
+        if add_assignee_to "${issue_repo}" "${issue_num}" "${HUMAN_LOGIN}"; then
+            remove_assignee_from "${issue_repo}" "${issue_num}" "${AGENT_LOGIN}"
+        fi
+    done < <(jq -r '.closingIssuesReferences[]? | [(if ((.repository.owner.login // "") != "" and (.repository.name // "") != "") then "\(.repository.owner.login)/\(.repository.name)" else "" end), (.number // "")] | join("|")' <<<"${PR_JSON}" 2>/dev/null || true)
 }
 
 echo "==> triage/review: ${REPO}#${NUM}"
@@ -217,7 +237,7 @@ if [[ "${rc}" -eq 0 ]]; then
             remove_label "changes-requested"
             remove_label "blocked"
             add_label "approved"
-            add_assignee_to "${REPO}" "${NUM}" "${HUMAN_LOGIN}"
+            add_assignee_to "${REPO}" "${NUM}" "${HUMAN_LOGIN}" || true
             remove_assignee_from "${REPO}" "${NUM}" "${AGENT_LOGIN}"
             review_flag="--approve"
 
@@ -225,14 +245,8 @@ if [[ "${rc}" -eq 0 ]]; then
             echo "==> Requesting review from human ${HUMAN_LOGIN}"
             gh api -X POST "repos/${REPO}/pulls/${NUM}/requested_reviewers" -f "reviewers[]=${HUMAN_LOGIN}" >/dev/null 2>&1 || true
 
-            # Assign originating issues
-            for issue_num in $(echo "${PR_JSON}" | jq -r '.closingIssuesReferences[].number' 2>/dev/null || true); do
-                if [[ -n "${issue_num}" && "${issue_num}" != "null" ]]; then
-                    echo "==> Handing over originating issue #${issue_num} to ${HUMAN_LOGIN}"
-                    add_assignee_to "${REPO}" "${issue_num}" "${HUMAN_LOGIN}"
-                    remove_assignee_from "${REPO}" "${issue_num}" "${AGENT_LOGIN}"
-                fi
-            done
+            # Assign originating issues using each reference's canonical repository.
+            handoff_closing_issues
             
             # Check for automerge and call merge.sh
             automerge="false"
@@ -259,7 +273,7 @@ if [[ "${rc}" -eq 0 ]]; then
             remove_label "approved"
             remove_label "changes-requested"
             add_label "blocked"
-            add_assignee_to "${REPO}" "${NUM}" "${HUMAN_LOGIN}"
+            add_assignee_to "${REPO}" "${NUM}" "${HUMAN_LOGIN}" || true
             remove_assignee_from "${REPO}" "${NUM}" "${AGENT_LOGIN}"
             review_flag="--comment"
 
@@ -267,14 +281,8 @@ if [[ "${rc}" -eq 0 ]]; then
             echo "==> Requesting review from human ${HUMAN_LOGIN}"
             gh api -X POST "repos/${REPO}/pulls/${NUM}/requested_reviewers" -f "reviewers[]=${HUMAN_LOGIN}" >/dev/null 2>&1 || true
 
-            # Assign originating issues
-            for issue_num in $(echo "${PR_JSON}" | jq -r '.closingIssuesReferences[].number' 2>/dev/null || true); do
-                if [[ -n "${issue_num}" && "${issue_num}" != "null" ]]; then
-                    echo "==> Handing over originating issue #${issue_num} to ${HUMAN_LOGIN}"
-                    add_assignee_to "${REPO}" "${issue_num}" "${HUMAN_LOGIN}"
-                    remove_assignee_from "${REPO}" "${issue_num}" "${AGENT_LOGIN}"
-                fi
-            done
+            # Assign originating issues using each reference's canonical repository.
+            handoff_closing_issues
             ;;
     esac
 
@@ -321,17 +329,11 @@ elif [[ "${rc}" -eq 3 ]]; then
     remove_label "approved"
     remove_label "changes-requested"
     add_label "blocked"
-    add_assignee_to "${REPO}" "${NUM}" "${HUMAN_LOGIN}"
+    add_assignee_to "${REPO}" "${NUM}" "${HUMAN_LOGIN}" || true
     remove_assignee_from "${REPO}" "${NUM}" "${AGENT_LOGIN}"
     gh api -X POST "repos/${REPO}/pulls/${NUM}/requested_reviewers" -f "reviewers[]=${HUMAN_LOGIN}" >/dev/null 2>&1 || true
 
-    for issue_num in $(echo "${PR_JSON}" | jq -r '.closingIssuesReferences[].number' 2>/dev/null || true); do
-        if [[ -n "${issue_num}" && "${issue_num}" != "null" ]]; then
-            echo "==> Handing over originating issue #${issue_num} to ${HUMAN_LOGIN}"
-            add_assignee_to "${REPO}" "${issue_num}" "${HUMAN_LOGIN}"
-            remove_assignee_from "${REPO}" "${issue_num}" "${AGENT_LOGIN}"
-        fi
-    done
+    handoff_closing_issues
 
     CLEANED_OUT=$(mktemp)
     cat > "${CLEANED_OUT}" <<EOF
