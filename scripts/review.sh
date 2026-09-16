@@ -62,8 +62,11 @@ remove_label() {
 }
 add_assignee_to() {
     # add_assignee_to REPO ISSUE_OR_PR ASSIGNEE
-    gh api -X POST "repos/${1}/issues/${2}/assignees" -f "assignees[]=${3}" >/dev/null 2>&1 || \
-        echo "WARN: failed to add assignee '${3}' to ${1}#${2}" >&2
+    if gh api -X POST "repos/${1}/issues/${2}/assignees" -f "assignees[]=${3}" >/dev/null 2>&1; then
+        return 0
+    fi
+    echo "WARN: failed to add assignee '${3}' to ${1}#${2}" >&2
+    return 1
 }
 remove_assignee_from() {
     # remove_assignee_from REPO ISSUE_OR_PR ASSIGNEE
@@ -81,9 +84,10 @@ handoff_closing_issues() {
         fi
 
         echo "==> Handing over originating issue ${issue_repo}#${issue_num} to ${HUMAN_LOGIN}"
-        add_assignee_to "${issue_repo}" "${issue_num}" "${HUMAN_LOGIN}"
-        remove_assignee_from "${issue_repo}" "${issue_num}" "${AGENT_LOGIN}"
-    done < <(jq -r '.closingIssuesReferences[]? | [(.repository.nameWithOwner // ""), (.number // "")] | join("|")' <<<"${PR_JSON}" 2>/dev/null || true)
+        if add_assignee_to "${issue_repo}" "${issue_num}" "${HUMAN_LOGIN}"; then
+            remove_assignee_from "${issue_repo}" "${issue_num}" "${AGENT_LOGIN}"
+        fi
+    done < <(jq -r '.closingIssuesReferences[]? | [(if ((.repository.owner.login // "") != "" and (.repository.name // "") != "") then "\(.repository.owner.login)/\(.repository.name)" else "" end), (.number // "")] | join("|")' <<<"${PR_JSON}" 2>/dev/null || true)
 }
 
 echo "==> triage/review: ${REPO}#${NUM}"
@@ -233,7 +237,7 @@ if [[ "${rc}" -eq 0 ]]; then
             remove_label "changes-requested"
             remove_label "blocked"
             add_label "approved"
-            add_assignee_to "${REPO}" "${NUM}" "${HUMAN_LOGIN}"
+            add_assignee_to "${REPO}" "${NUM}" "${HUMAN_LOGIN}" || true
             remove_assignee_from "${REPO}" "${NUM}" "${AGENT_LOGIN}"
             review_flag="--approve"
 
@@ -269,7 +273,7 @@ if [[ "${rc}" -eq 0 ]]; then
             remove_label "approved"
             remove_label "changes-requested"
             add_label "blocked"
-            add_assignee_to "${REPO}" "${NUM}" "${HUMAN_LOGIN}"
+            add_assignee_to "${REPO}" "${NUM}" "${HUMAN_LOGIN}" || true
             remove_assignee_from "${REPO}" "${NUM}" "${AGENT_LOGIN}"
             review_flag="--comment"
 
@@ -325,7 +329,7 @@ elif [[ "${rc}" -eq 3 ]]; then
     remove_label "approved"
     remove_label "changes-requested"
     add_label "blocked"
-    add_assignee_to "${REPO}" "${NUM}" "${HUMAN_LOGIN}"
+    add_assignee_to "${REPO}" "${NUM}" "${HUMAN_LOGIN}" || true
     remove_assignee_from "${REPO}" "${NUM}" "${AGENT_LOGIN}"
     gh api -X POST "repos/${REPO}/pulls/${NUM}/requested_reviewers" -f "reviewers[]=${HUMAN_LOGIN}" >/dev/null 2>&1 || true
 

@@ -44,7 +44,8 @@ if [[ "${1:-}" == "pr" && "${2:-}" == "review" ]]; then
 fi
 if [[ "${1:-}" == "api" ]]; then
     printf '%s\n' "$*" >> "${GH_API_LOG}"
-    if [[ -n "${FAIL_API_TARGET:-}" && "$*" == *"${FAIL_API_TARGET}"* ]]; then
+    if [[ -n "${FAIL_API_TARGET:-}" && "$*" == *"${FAIL_API_TARGET}"* ]] &&
+       [[ -z "${FAIL_API_OPERATION:-}" || "$*" == *"${FAIL_API_OPERATION}"* ]]; then
         exit 1
     fi
     exit 0
@@ -77,7 +78,7 @@ prompt_mode = "stdin"
 TOML
 
 export PATH="${MOCK_BIN}:${PATH}"
-export GH_API_LOG REVIEW_PR_JSON REVIEW_VERDICT FAIL_API_TARGET
+export GH_API_LOG REVIEW_PR_JSON REVIEW_VERDICT FAIL_API_TARGET FAIL_API_OPERATION
 export TRIAGE_DIR="${RUNTIME}"
 export TRIAGE_CONFIG="${RUNTIME}/triage.toml"
 export TRIAGE_REPOS_DIR="${REPOS}"
@@ -94,30 +95,33 @@ run_review() {
 
 # Same-repo and cross-repo references retain their own canonical repository,
 # including distinct repositories whose issue numbers happen to match.
-REVIEW_PR_JSON='{"author":{"login":"contributor"},"closingIssuesReferences":[{"number":42,"repository":{"nameWithOwner":"acme/app"}},{"number":42,"repository":{"nameWithOwner":"other/project"}},{"number":9,"repository":{"nameWithOwner":"third/repo"}}]}'
+REVIEW_PR_JSON='{"author":{"login":"contributor"},"closingIssuesReferences":[{"number":42,"repository":{"name":"app","owner":{"login":"acme"}}},{"number":42,"repository":{"name":"project","owner":{"login":"other"}}},{"number":9,"repository":{"name":"repo","owner":{"login":"third"}}}]}'
 REVIEW_VERDICT='VERDICT: merge-ready'
 FAIL_API_TARGET=''
+FAIL_API_OPERATION=''
 run_review >/dev/null
 grep -Fq 'repos/acme/app/issues/42/assignees' "${GH_API_LOG}"
 grep -Fq 'repos/other/project/issues/42/assignees' "${GH_API_LOG}"
 grep -Fq 'repos/third/repo/issues/9/assignees' "${GH_API_LOG}"
 [[ "$(grep -c 'repos/.*/issues/42/assignees' "${GH_API_LOG}")" -eq 4 ]]
 
-# Blocked handoffs use the referenced repository and surface API failures while
-# continuing the wrapper's remaining human-control-point mutations.
-REVIEW_PR_JSON='{"author":{"login":"contributor"},"closingIssuesReferences":[{"number":55,"repository":{"nameWithOwner":"other/failing"}}]}'
+# Blocked handoffs use the referenced repository. If assigning the human fails,
+# the agent remains assigned so the issue is never left without an owner.
+REVIEW_PR_JSON='{"author":{"login":"contributor"},"closingIssuesReferences":[{"number":55,"repository":{"name":"failing","owner":{"login":"other"}}}]}'
 REVIEW_VERDICT='VERDICT: blocked - external dependency'
 FAIL_API_TARGET='repos/other/failing/issues/55/assignees'
+FAIL_API_OPERATION='-X POST'
 blocked_log="$(run_review)"
-grep -Fq 'repos/other/failing/issues/55/assignees' "${GH_API_LOG}"
+[[ "$(grep -c 'repos/other/failing/issues/55/assignees' "${GH_API_LOG}")" -eq 1 ]]
+! grep -Fq -- '-X DELETE repos/other/failing/issues/55/assignees' "${GH_API_LOG}"
 grep -Fq "WARN: failed to add assignee 'human' to other/failing#55" <<<"${blocked_log}"
-grep -Fq "WARN: failed to remove assignee 'bot' from other/failing#55" <<<"${blocked_log}"
 
 # Missing repository identity is explicit and fails closed. In particular, it
 # is never substituted with the PR repository for a possibly cross-repo issue.
-REVIEW_PR_JSON='{"author":{"login":"contributor"},"closingIssuesReferences":[{"number":77,"repository":null},{"number":78,"repository":{"nameWithOwner":""}}]}'
+REVIEW_PR_JSON='{"author":{"login":"contributor"},"closingIssuesReferences":[{"number":77,"repository":null},{"number":78,"repository":{"name":"repo","owner":null}}]}'
 REVIEW_VERDICT='VERDICT: blocked - inaccessible issue'
 FAIL_API_TARGET=''
+FAIL_API_OPERATION=''
 incomplete_log="$(run_review)"
 ! grep -Fq 'repos/acme/app/issues/77/assignees' "${GH_API_LOG}"
 ! grep -Fq 'repos/acme/app/issues/78/assignees' "${GH_API_LOG}"
@@ -125,7 +129,7 @@ grep -Fq 'WARN: skipping closing issue reference with incomplete or invalid repo
 grep -Fq 'WARN: skipping closing issue reference with incomplete or invalid repository identity: <missing>#78' <<<"${incomplete_log}"
 
 # Invalid reviewer output follows the same repository-aware blocked handoff.
-REVIEW_PR_JSON='{"author":{"login":"contributor"},"closingIssuesReferences":[{"number":88,"repository":{"nameWithOwner":"invalid/output"}}]}'
+REVIEW_PR_JSON='{"author":{"login":"contributor"},"closingIssuesReferences":[{"number":88,"repository":{"name":"output","owner":{"login":"invalid"}}}]}'
 REVIEW_VERDICT='review completed without protocol verdict'
 FAIL_API_TARGET=''
 run_review expect-failure >/dev/null
