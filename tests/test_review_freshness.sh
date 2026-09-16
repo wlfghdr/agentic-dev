@@ -78,23 +78,34 @@ if [[ "${1:-}" == "pr" && "${2:-}" == "view" ]]; then
     count=$((count + 1))
     printf '%s\n' "${count}" > "${VIEW_COUNT}"
     head="${REVIEW_SHA}"
+    base="${BASE_SHA}"
     status="COMPLETED"
     conclusion="SUCCESS"
+    mergeable="MERGEABLE"
     if (( count > 1 )); then
         case "${TEST_MODE}" in
             head-change) head="${CHANGED_SHA}" ;;
             red) conclusion="FAILURE" ;;
             pending) status="IN_PROGRESS"; conclusion="" ;;
+            unknown-mergeability) mergeable="UNKNOWN" ;;
+            merge-base-change)
+                if (( count > 3 )); then base="${CHANGED_SHA}"; fi
+                ;;
         esac
     fi
+    checks='[{name:"ci",status:$status,conclusion:$conclusion}]'
+    if [[ "${TEST_MODE}" == "no-checks" ]]; then
+        checks='[]'
+    fi
     jq -n \
-        --arg head "${head}" --arg base "${BASE_SHA}" \
+        --arg head "${head}" --arg base "${base}" \
         --arg status "${status}" --arg conclusion "${conclusion}" \
+        --arg mergeable "${mergeable}" \
         '{title:"fix: safe review",body:"Closes #27",baseRefName:"main",headRefName:"feature",
           baseRefOid:$base,headRefOid:$head,files:[{path:"payload.txt"}],labels:[],assignees:[],
-          isDraft:false,state:"OPEN",mergeStateStatus:"CLEAN",mergeable:"MERGEABLE",
+          isDraft:false,state:"OPEN",mergeStateStatus:"CLEAN",mergeable:$mergeable,
           author:{login:"contributor"},closingIssuesReferences:[{number:27}],
-          statusCheckRollup:[{name:"ci",status:$status,conclusion:$conclusion}]}'
+          statusCheckRollup:'"${checks}"'}'
     exit 0
 fi
 
@@ -137,9 +148,21 @@ run_case() {
         grep -F "event=APPROVE" "${GH_LOG}" >/dev/null
         grep -F "labels[]=approved" "${GH_LOG}" >/dev/null
         grep -F "pr merge 7 -R owner/demo --squash --auto --match-head-commit ${REVIEW_SHA}" "${GH_LOG}" >/dev/null
+        if grep -F "issues/7/labels/blocked" "${GH_LOG}" >/dev/null; then
+            echo "stable: removed human stop label after eligibility check" >&2
+            exit 1
+        fi
     elif [[ "${TEST_MODE}" == "merge-failure" ]]; then
         grep -F "labels[]=approved" "${GH_LOG}" >/dev/null
         grep -F "pr merge 7 -R owner/demo --squash --auto --match-head-commit ${REVIEW_SHA}" "${GH_LOG}" >/dev/null
+        [[ "$(grep -E 'labels\[\]=approved|labels/approved' "${GH_LOG}" | tail -n 1)" == \
+            "api -X DELETE repos/owner/demo/issues/7/labels/approved" ]]
+    elif [[ "${TEST_MODE}" == "merge-base-change" ]]; then
+        grep -F "labels[]=approved" "${GH_LOG}" >/dev/null
+        if grep -F "pr merge" "${GH_LOG}" >/dev/null; then
+            echo "merge-base-change: attempted merge after base changed" >&2
+            exit 1
+        fi
         [[ "$(grep -E 'labels\[\]=approved|labels/approved' "${GH_LOG}" | tail -n 1)" == \
             "api -X DELETE repos/owner/demo/issues/7/labels/approved" ]]
     else
@@ -157,8 +180,11 @@ run_case() {
 run_case head-change
 run_case red
 run_case pending
+run_case no-checks
+run_case unknown-mergeability
 run_case api-failure
 run_case merge-failure
+run_case merge-base-change
 run_case stable
 
 echo "review freshness tests passed"

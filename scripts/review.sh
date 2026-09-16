@@ -114,15 +114,22 @@ approval_is_current_and_green() {
         echo "==> PR has a human stop label; deferring approval"
         return 1
     fi
-    if echo "${live_json}" | jq -e '.statusCheckRollup[]? | select(.status != "COMPLETED" or ((.conclusion // "") | IN("SUCCESS", "NEUTRAL", "SKIPPED") | not))' >/dev/null; then
-        echo "==> PR checks are pending, red, or unknown; deferring approval"
+    if ! echo "${live_json}" | jq -e '
+        (.statusCheckRollup | type == "array" and length > 0) and
+        all(.statusCheckRollup[];
+            .status == "COMPLETED" and
+            ((.conclusion // "") | IN("SUCCESS", "NEUTRAL", "SKIPPED")))
+    ' >/dev/null; then
+        echo "==> PR checks are missing, pending, red, or unknown; deferring approval"
         return 1
     fi
     local merge_state mergeable
     merge_state=$(echo "${live_json}" | jq -r '.mergeStateStatus // ""' | tr '[:lower:]' '[:upper:]')
     mergeable=$(echo "${live_json}" | jq -r '.mergeable // ""' | tr '[:lower:]' '[:upper:]')
-    if [[ "${merge_state}" == "BEHIND" || "${merge_state}" == "DIRTY" || "${mergeable}" == "CONFLICTING" ]]; then
-        echo "==> PR is behind or conflicting; deferring approval"
+    if [[ "${merge_state}" == "" || "${merge_state}" == "UNKNOWN" || \
+          "${merge_state}" == "BEHIND" || "${merge_state}" == "DIRTY" || \
+          "${mergeable}" != "MERGEABLE" ]]; then
+        echo "==> PR mergeability is unknown, behind, or conflicting; deferring approval"
         return 1
     fi
 }
@@ -352,7 +359,6 @@ if [[ "${rc}" -eq 0 ]]; then
                 remove_label "${NEEDS_REVIEW_LABEL}"
                 remove_label "in-progress"
                 remove_label "changes-requested"
-                remove_label "blocked"
                 add_assignee_to "${REPO}" "${NUM}" "${HUMAN_LOGIN}"
                 remove_assignee_from "${REPO}" "${NUM}" "${AGENT_LOGIN}"
 
@@ -376,7 +382,7 @@ if [[ "${rc}" -eq 0 ]]; then
                 fi
                 if [[ "${automerge}" == "True" || "${automerge}" == "true" ]]; then
                     echo "==> automerge enabled for ${REPO}; executing merge.sh"
-                    "$(dirname "$0")/merge.sh" "${REPO}" "${NUM}" "${REVIEW_SHA}" || true
+                    "$(dirname "$0")/merge.sh" "${REPO}" "${NUM}" "${REVIEW_SHA}" "${BASE_SHA}" || true
                 fi
             fi
             ;;

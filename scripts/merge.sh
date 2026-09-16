@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
-# scripts/merge.sh REPO PR_NUMBER REVIEWED_HEAD_SHA
-# Auto-merge an approved PR only if it is still the reviewed revision.
+# scripts/merge.sh REPO PR_NUMBER REVIEWED_HEAD_SHA REVIEWED_BASE_SHA
+# Auto-merge an approved PR only if its reviewed head and base are unchanged.
 set -euo pipefail
 
 REPO="${1:?repo required}"
 NUM="${2:?pr number required}"
 REVIEWED_HEAD_SHA="${3:?reviewed head SHA required}"
+REVIEWED_BASE_SHA="${4:?reviewed base SHA required}"
 
-if [[ ! "${REVIEWED_HEAD_SHA}" =~ ^[0-9a-fA-F]{40}$ ]]; then
-    echo "FATAL: reviewed head must be a full commit SHA" >&2
+if [[ ! "${REVIEWED_HEAD_SHA}" =~ ^[0-9a-fA-F]{40}$ || \
+      ! "${REVIEWED_BASE_SHA}" =~ ^[0-9a-fA-F]{40}$ ]]; then
+    echo "FATAL: reviewed head and base must be full commit SHAs" >&2
     exit 2
 fi
 
@@ -35,15 +37,16 @@ remove_approved() {
     return 1
 }
 
-if ! PR_JSON=$(gh pr view "${NUM}" -R "${REPO}" --json headRefOid,statusCheckRollup,labels,isDraft,state,mergeStateStatus,mergeable); then
+if ! PR_JSON=$(gh pr view "${NUM}" -R "${REPO}" --json headRefOid,baseRefOid,statusCheckRollup,labels,isDraft,state,mergeStateStatus,mergeable); then
     echo "==> unable to refresh merge eligibility; removing approved state"
     remove_approved
     exit 1
 fi
 
 HEAD_SHA="$(echo "${PR_JSON}" | jq -r '.headRefOid // ""')"
-if [[ "${HEAD_SHA}" != "${REVIEWED_HEAD_SHA}" ]]; then
-    echo "==> PR head changed after review; removing approved state"
+BASE_SHA="$(echo "${PR_JSON}" | jq -r '.baseRefOid // ""')"
+if [[ "${HEAD_SHA}" != "${REVIEWED_HEAD_SHA}" || "${BASE_SHA}" != "${REVIEWED_BASE_SHA}" ]]; then
+    echo "==> PR head or base changed after review; removing approved state"
     remove_approved
     exit 0
 fi
@@ -58,15 +61,22 @@ if echo "${PR_JSON}" | jq -e '.labels[]?.name | select(. == "blocked" or . == "d
     remove_approved
     exit 0
 fi
-if echo "${PR_JSON}" | jq -e '.statusCheckRollup[]? | select(.status != "COMPLETED" or ((.conclusion // "") | IN("SUCCESS", "NEUTRAL", "SKIPPED") | not))' >/dev/null; then
-    echo "==> PR checks are pending, red, or unknown; removing approved state"
+if ! echo "${PR_JSON}" | jq -e '
+    (.statusCheckRollup | type == "array" and length > 0) and
+    all(.statusCheckRollup[];
+        .status == "COMPLETED" and
+        ((.conclusion // "") | IN("SUCCESS", "NEUTRAL", "SKIPPED")))
+' >/dev/null; then
+    echo "==> PR checks are missing, pending, red, or unknown; removing approved state"
     remove_approved
     exit 0
 fi
 merge_state="$(echo "${PR_JSON}" | jq -r '.mergeStateStatus // ""' | tr '[:lower:]' '[:upper:]')"
 mergeable="$(echo "${PR_JSON}" | jq -r '.mergeable // ""' | tr '[:lower:]' '[:upper:]')"
-if [[ "${merge_state}" == "BEHIND" || "${merge_state}" == "DIRTY" || "${mergeable}" == "CONFLICTING" ]]; then
-    echo "==> PR is behind or conflicting; removing approved state"
+if [[ "${merge_state}" == "" || "${merge_state}" == "UNKNOWN" || \
+      "${merge_state}" == "BEHIND" || "${merge_state}" == "DIRTY" || \
+      "${mergeable}" != "MERGEABLE" ]]; then
+    echo "==> PR mergeability is unknown, behind, or conflicting; removing approved state"
     remove_approved
     exit 0
 fi
