@@ -64,8 +64,9 @@ fi
 if ! echo "${PR_JSON}" | jq -e '
     (.statusCheckRollup | type == "array" and length > 0) and
     all(.statusCheckRollup[];
-        .status == "COMPLETED" and
-        ((.conclusion // "") | IN("SUCCESS", "NEUTRAL", "SKIPPED")))
+        (.status == "COMPLETED" and
+         ((.conclusion // "") | IN("SUCCESS", "NEUTRAL", "SKIPPED"))) or
+        ((.state // "") == "SUCCESS"))
 ' >/dev/null; then
     echo "==> PR checks are missing, pending, red, or unknown; removing approved state"
     remove_approved

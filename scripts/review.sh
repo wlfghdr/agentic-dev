@@ -117,8 +117,9 @@ approval_is_current_and_green() {
     if ! echo "${live_json}" | jq -e '
         (.statusCheckRollup | type == "array" and length > 0) and
         all(.statusCheckRollup[];
-            .status == "COMPLETED" and
-            ((.conclusion // "") | IN("SUCCESS", "NEUTRAL", "SKIPPED")))
+            (.status == "COMPLETED" and
+             ((.conclusion // "") | IN("SUCCESS", "NEUTRAL", "SKIPPED"))) or
+            ((.state // "") == "SUCCESS"))
     ' >/dev/null; then
         echo "==> PR checks are missing, pending, red, or unknown; deferring approval"
         return 1
@@ -348,7 +349,9 @@ if [[ "${rc}" -eq 0 ]]; then
                     rc=4
                 elif ! approval_is_current_and_green; then
                     echo "WARN: approval eligibility changed during publication; removing approved" >&2
-                    remove_approved || true
+                    if ! remove_approved; then
+                        rc=4
+                    fi
                 else
                     approval_published="true"
                 fi

@@ -13,6 +13,7 @@ RUNTIME="${TEST_ROOT}/runtime"
 MOCK_BIN="${TEST_ROOT}/mock-bin"
 GH_LOG="${TEST_ROOT}/gh.log"
 VIEW_COUNT="${TEST_ROOT}/view-count"
+APPROVED_ADDED="${TEST_ROOT}/approved-added"
 mkdir -p "${REPOS}" "${WORKTREES}" "${RUNTIME}/logs" "${MOCK_BIN}"
 
 git init --bare "${REMOTE}" >/dev/null
@@ -87,6 +88,9 @@ if [[ "${1:-}" == "pr" && "${2:-}" == "view" ]]; then
             head-change) head="${CHANGED_SHA}" ;;
             red) conclusion="FAILURE" ;;
             pending) status="IN_PROGRESS"; conclusion="" ;;
+            rollback-failure)
+                if (( count > 2 )); then conclusion="FAILURE"; fi
+                ;;
             unknown-mergeability) mergeable="UNKNOWN" ;;
             merge-base-change)
                 if (( count > 3 )); then base="${CHANGED_SHA}"; fi
@@ -94,6 +98,9 @@ if [[ "${1:-}" == "pr" && "${2:-}" == "view" ]]; then
         esac
     fi
     checks='[{name:"ci",status:$status,conclusion:$conclusion}]'
+    if [[ "${TEST_MODE}" == "legacy-status" ]]; then
+        checks='[{context:"legacy-ci",state:"SUCCESS"}]'
+    fi
     if [[ "${TEST_MODE}" == "no-checks" ]]; then
         checks='[]'
     fi
@@ -113,6 +120,12 @@ if [[ "${1:-}" == "api" ]]; then
     if [[ "$*" == *"/reviews"* && "${TEST_MODE}" == "api-failure" ]]; then
         exit 1
     fi
+    if [[ "$*" == *"labels[]=approved"* ]]; then
+        : > "${APPROVED_ADDED}"
+    fi
+    if [[ "$*" == *"labels/approved"* && "${TEST_MODE}" == "rollback-failure" && -f "${APPROVED_ADDED}" ]]; then
+        exit 1
+    fi
     exit 0
 fi
 
@@ -129,7 +142,7 @@ MOCK
 chmod +x "${MOCK_BIN}/gh" "${MOCK_BIN}/fake-reviewer"
 
 export PATH="${MOCK_BIN}:${PATH}"
-export GH_LOG VIEW_COUNT REVIEW_SHA BASE_SHA CHANGED_SHA
+export GH_LOG VIEW_COUNT APPROVED_ADDED REVIEW_SHA BASE_SHA CHANGED_SHA
 export TRIAGE_DIR="${RUNTIME}"
 export TRIAGE_CONFIG="${RUNTIME}/triage.toml"
 export TRIAGE_REPOS_DIR="${REPOS}"
@@ -140,10 +153,13 @@ run_case() {
     TEST_MODE="${1}"
     export TEST_MODE
     : > "${GH_LOG}"
+    rm -f "${APPROVED_ADDED}"
     printf '0\n' > "${VIEW_COUNT}"
-    "${ROOT}/scripts/review.sh" owner/demo 7 || true
+    case_rc=0
+    "${ROOT}/scripts/review.sh" owner/demo 7 || case_rc=$?
 
-    if [[ "${TEST_MODE}" == "stable" ]]; then
+    if [[ "${TEST_MODE}" == "stable" || "${TEST_MODE}" == "legacy-status" ]]; then
+        [[ "${case_rc}" -eq 0 ]]
         grep -F "commit_id=${REVIEW_SHA}" "${GH_LOG}" >/dev/null
         grep -F "event=APPROVE" "${GH_LOG}" >/dev/null
         grep -F "labels[]=approved" "${GH_LOG}" >/dev/null
@@ -165,6 +181,9 @@ run_case() {
         fi
         [[ "$(grep -E 'labels\[\]=approved|labels/approved' "${GH_LOG}" | tail -n 1)" == \
             "api -X DELETE repos/owner/demo/issues/7/labels/approved" ]]
+    elif [[ "${TEST_MODE}" == "rollback-failure" ]]; then
+        [[ "${case_rc}" -ne 0 ]]
+        grep -F "api -X DELETE repos/owner/demo/issues/7/labels/approved" "${GH_LOG}" >/dev/null
     else
         if grep -F "labels[]=approved" "${GH_LOG}" >/dev/null; then
             echo "${TEST_MODE}: published approved state" >&2
@@ -181,8 +200,10 @@ run_case head-change
 run_case red
 run_case pending
 run_case no-checks
+run_case legacy-status
 run_case unknown-mergeability
 run_case api-failure
+run_case rollback-failure
 run_case merge-failure
 run_case merge-base-change
 run_case stable

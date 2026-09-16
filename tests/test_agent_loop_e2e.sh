@@ -342,6 +342,15 @@ run_tick
 [[ "$(jq -r .phase "${STATE}")" == "pr" ]]
 [[ "$(git --git-dir="${REMOTE}" show refs/pull/2/head:app.txt)" == *"implemented by agent"* ]]
 
+# A human do-not-work label pauses review before any reviewer is dispatched.
+jq '.pr_labels = ["do-not-work"]' "${STATE}" > "${STATE}.next"
+mv "${STATE}.next" "${STATE}"
+run_tick
+jq -e '.review_count == 0' "${STATE}" >/dev/null
+jq -e '.itemCount == 0' "${RUNTIME}/state/last-tick.json" >/dev/null
+jq '.pr_labels = []' "${STATE}" > "${STATE}.next"
+mv "${STATE}.next" "${STATE}"
+
 run_tick
 jq -e '.pr_labels | index("changes-requested")' "${STATE}" >/dev/null
 [[ "$(jq -r .review_count "${STATE}")" == "1" ]]
