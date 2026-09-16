@@ -70,6 +70,69 @@ remove_assignee_from() {
     gh api -X DELETE "repos/${1}/issues/${2}/assignees" -f "assignees[]=${3}" >/dev/null 2>&1 || true
 }
 
+remove_approved() {
+    # A missing label and a successfully removed label are both safe states.
+    local output
+    if output=$(gh api -X DELETE "repos/${REPO}/issues/${NUM}/labels/approved" 2>&1); then
+        return 0
+    fi
+    if grep -qiE 'HTTP 404|Not Found' <<<"${output}"; then
+        return 0
+    fi
+    echo "WARN: could not ensure approved was absent from ${REPO}#${NUM}" >&2
+    return 1
+}
+
+add_approved() {
+    if ! gh api -X POST "repos/${REPO}/issues/${NUM}/labels" -f "labels[]=approved" >/dev/null 2>&1; then
+        echo "WARN: failed to publish approved label to ${REPO}#${NUM}" >&2
+        remove_approved || true
+        return 1
+    fi
+}
+
+approval_is_current_and_green() {
+    # Refresh every mutable input at the publication boundary. The detector's
+    # earlier observation is intentionally not trusted here.
+    local live_json live_head live_base
+    if ! live_json=$(gh pr view "${NUM}" -R "${REPO}" --json headRefOid,baseRefOid,statusCheckRollup,labels,isDraft,state,mergeStateStatus,mergeable); then
+        echo "==> unable to refresh PR approval eligibility; deferring"
+        return 1
+    fi
+    live_head=$(echo "${live_json}" | jq -r '.headRefOid // ""')
+    live_base=$(echo "${live_json}" | jq -r '.baseRefOid // ""')
+    if [[ "${live_head}" != "${REVIEW_SHA}" || "${live_base}" != "${BASE_SHA}" ]]; then
+        echo "==> PR revision changed during review; deferring approval"
+        return 1
+    fi
+    if [[ "$(echo "${live_json}" | jq -r '.state // ""')" != "OPEN" ]] || \
+       [[ "$(echo "${live_json}" | jq -r '.isDraft // false')" == "true" ]]; then
+        echo "==> PR is no longer open and ready for review; deferring approval"
+        return 1
+    fi
+    if echo "${live_json}" | jq -e '.labels[]?.name | select(. == "blocked" or . == "do-not-merge" or . == "do-not-work")' >/dev/null; then
+        echo "==> PR has a human stop label; deferring approval"
+        return 1
+    fi
+    if echo "${live_json}" | jq -e '.statusCheckRollup[]? | select(.status != "COMPLETED" or ((.conclusion // "") | IN("SUCCESS", "NEUTRAL", "SKIPPED") | not))' >/dev/null; then
+        echo "==> PR checks are pending, red, or unknown; deferring approval"
+        return 1
+    fi
+    local merge_state mergeable
+    merge_state=$(echo "${live_json}" | jq -r '.mergeStateStatus // ""' | tr '[:lower:]' '[:upper:]')
+    mergeable=$(echo "${live_json}" | jq -r '.mergeable // ""' | tr '[:lower:]' '[:upper:]')
+    if [[ "${merge_state}" == "BEHIND" || "${merge_state}" == "DIRTY" || "${mergeable}" == "CONFLICTING" ]]; then
+        echo "==> PR is behind or conflicting; deferring approval"
+        return 1
+    fi
+}
+
+submit_pinned_review() {
+    # submit_pinned_review EVENT BODY_FILE
+    gh api -X POST "repos/${REPO}/pulls/${NUM}/reviews" \
+        -f "commit_id=${REVIEW_SHA}" -f "event=${1}" -F "body=@${2}" >/dev/null 2>&1
+}
+
 echo "==> triage/review: ${REPO}#${NUM}"
 
 if [[ ! -d "${LOCAL_REPO}/.git" ]]; then
@@ -78,8 +141,25 @@ if [[ ! -d "${LOCAL_REPO}/.git" ]]; then
 fi
 
 REVIEW_REF="refs/remotes/origin/pr-${NUM}-review"
-git -C "${LOCAL_REPO}" fetch --quiet --force origin "pull/${NUM}/head:${REVIEW_REF}"
-REVIEW_SHA="$(git -C "${LOCAL_REPO}" rev-parse "${REVIEW_REF}")"
+BASE_REF="refs/remotes/origin/pr-${NUM}-base-review"
+PR_JSON=$(gh pr view "${NUM}" -R "${REPO}" --json title,body,baseRefName,baseRefOid,headRefName,headRefOid,files,labels,assignees,isDraft,mergeStateStatus,mergeable,author,closingIssuesReferences,statusCheckRollup,state)
+REVIEW_SHA="$(echo "${PR_JSON}" | jq -r '.headRefOid // ""')"
+BASE_SHA="$(echo "${PR_JSON}" | jq -r '.baseRefOid // ""')"
+BASE_BRANCH="$(echo "${PR_JSON}" | jq -r '.baseRefName // ""')"
+if [[ ! "${REVIEW_SHA}" =~ ^[0-9a-fA-F]{40}$ || ! "${BASE_SHA}" =~ ^[0-9a-fA-F]{40}$ ]] || \
+   ! git check-ref-format "refs/heads/${BASE_BRANCH}" >/dev/null 2>&1; then
+    echo "FATAL: PR metadata did not provide valid immutable head/base revisions" >&2
+    exit 2
+fi
+git -C "${LOCAL_REPO}" fetch --quiet --force origin \
+    "+pull/${NUM}/head:${REVIEW_REF}" \
+    "+refs/heads/${BASE_BRANCH}:${BASE_REF}"
+FETCHED_HEAD_SHA="$(git -C "${LOCAL_REPO}" rev-parse "${REVIEW_REF}")"
+FETCHED_BASE_SHA="$(git -C "${LOCAL_REPO}" rev-parse "${BASE_REF}")"
+if [[ "${FETCHED_HEAD_SHA}" != "${REVIEW_SHA}" || "${FETCHED_BASE_SHA}" != "${BASE_SHA}" ]]; then
+    echo "==> PR head or base changed while capturing review snapshot; deferring review"
+    exit 0
+fi
 if [[ -e "${WORKTREE}" ]]; then
     git -C "${WORKTREE}" checkout --detach "${REVIEW_SHA}"
     git -C "${WORKTREE}" reset --hard "${REVIEW_SHA}"
@@ -93,12 +173,12 @@ if [[ "${CHECKED_OUT_SHA}" != "${REVIEW_SHA}" ]]; then
     exit 2
 fi
 
-PR_JSON=$(gh pr view "${NUM}" -R "${REPO}" --json title,body,baseRefName,headRefName,files,labels,assignees,isDraft,mergeStateStatus,author,closingIssuesReferences)
 PR_AUTHOR=$(echo "${PR_JSON}" | jq -r '.author.login // ""')
-DIFF=$(gh pr diff "${NUM}" -R "${REPO}")
+DIFF=$(git -C "${LOCAL_REPO}" diff --no-ext-diff --binary "${BASE_SHA}...${REVIEW_SHA}")
 
 PROMPT=$(cat <<PROMPT_EOF
-You are reviewing PR #${NUM} of ${REPO}, checked out at ${WORKTREE}.
+You are reviewing PR #${NUM} of ${REPO}, checked out at immutable head ${REVIEW_SHA}
+against immutable base ${BASE_SHA} at ${WORKTREE}.
 
 PR metadata (JSON):
 ${PR_JSON}
@@ -207,83 +287,7 @@ done
 
 if [[ "${rc}" -eq 0 ]]; then
     echo "==> agent final line: ${LAST_LINE:-<empty>}"
-    
-    review_flag="--comment"
-    case "${LAST_LINE}" in
-        "VERDICT: merge-ready"*)
-            echo "==> merge-ready; labeling approved and assigning ${HUMAN_LOGIN}"
-            remove_label "${NEEDS_REVIEW_LABEL}"
-            remove_label "in-progress"
-            remove_label "changes-requested"
-            remove_label "blocked"
-            add_label "approved"
-            add_assignee_to "${REPO}" "${NUM}" "${HUMAN_LOGIN}"
-            remove_assignee_from "${REPO}" "${NUM}" "${AGENT_LOGIN}"
-            review_flag="--approve"
 
-            # Request review from human
-            echo "==> Requesting review from human ${HUMAN_LOGIN}"
-            gh api -X POST "repos/${REPO}/pulls/${NUM}/requested_reviewers" -f "reviewers[]=${HUMAN_LOGIN}" >/dev/null 2>&1 || true
-
-            # Assign originating issues
-            for issue_num in $(echo "${PR_JSON}" | jq -r '.closingIssuesReferences[].number' 2>/dev/null || true); do
-                if [[ -n "${issue_num}" && "${issue_num}" != "null" ]]; then
-                    echo "==> Handing over originating issue #${issue_num} to ${HUMAN_LOGIN}"
-                    add_assignee_to "${REPO}" "${issue_num}" "${HUMAN_LOGIN}"
-                    remove_assignee_from "${REPO}" "${issue_num}" "${AGENT_LOGIN}"
-                fi
-            done
-            
-            # Check for automerge and call merge.sh
-            automerge="false"
-            if [[ -f "${CONF_FILE}" ]]; then
-                automerge=$(python3 "${SCRIPT_DIR}/parse_toml.py" "${CONF_FILE}" "repos.automerge" "${REPO}" 2>/dev/null || echo "false")
-            fi
-            if [[ "${automerge}" == "True" || "${automerge}" == "true" ]]; then
-                echo "==> automerge enabled for ${REPO}; executing merge.sh"
-                "$(dirname "$0")/merge.sh" "${REPO}" "${NUM}" || true
-            fi
-            ;;
-        "VERDICT: needs-fix"*)
-            echo "==> needs-fix; labeling changes-requested"
-            remove_label "${NEEDS_REVIEW_LABEL}"
-            remove_label "approved"
-            remove_label "blocked"
-            add_label "changes-requested"
-            review_flag="--request-changes"
-            ;;
-        "VERDICT: blocked"*)
-            echo "==> blocked; labeling blocked and handing back to ${HUMAN_LOGIN}"
-            remove_label "${NEEDS_REVIEW_LABEL}"
-            remove_label "in-progress"
-            remove_label "approved"
-            remove_label "changes-requested"
-            add_label "blocked"
-            add_assignee_to "${REPO}" "${NUM}" "${HUMAN_LOGIN}"
-            remove_assignee_from "${REPO}" "${NUM}" "${AGENT_LOGIN}"
-            review_flag="--comment"
-
-            # Request review from human
-            echo "==> Requesting review from human ${HUMAN_LOGIN}"
-            gh api -X POST "repos/${REPO}/pulls/${NUM}/requested_reviewers" -f "reviewers[]=${HUMAN_LOGIN}" >/dev/null 2>&1 || true
-
-            # Assign originating issues
-            for issue_num in $(echo "${PR_JSON}" | jq -r '.closingIssuesReferences[].number' 2>/dev/null || true); do
-                if [[ -n "${issue_num}" && "${issue_num}" != "null" ]]; then
-                    echo "==> Handing over originating issue #${issue_num} to ${HUMAN_LOGIN}"
-                    add_assignee_to "${REPO}" "${issue_num}" "${HUMAN_LOGIN}"
-                    remove_assignee_from "${REPO}" "${issue_num}" "${AGENT_LOGIN}"
-                fi
-            done
-            ;;
-    esac
-
-    if [[ "${review_flag}" == "--approve" && "${PR_AUTHOR}" == "${AGENT_LOGIN}" ]]; then
-        echo "==> PR authored by ${AGENT_LOGIN}; GitHub forbids self-approval. Submitting review as comment instead."
-        review_flag="--comment"
-    fi
-    
-    echo "==> submitting formal review to PR #${NUM}"
     CLEANED_OUT=$(mktemp)
     awk '
         /### Review Summary/ { p=NR }
@@ -292,7 +296,6 @@ if [[ "${rc}" -eq 0 ]]; then
             if (p) {
                 start = p
             } else {
-                # Fallback to checking tokens used or codex
                 start = 1
                 for (i=1; i<=NR; i++) {
                     if (lines[i] == "tokens used") {
@@ -311,8 +314,109 @@ if [[ "${rc}" -eq 0 ]]; then
         }
     ' "${REVIEW_OUT}" > "${CLEANED_OUT}"
 
-    gh pr review "${NUM}" -R "${REPO}" "${review_flag}" -F "${CLEANED_OUT}" >/dev/null 2>&1 || \
-        echo "WARN: failed to submit review to ${REPO}#${NUM}" >&2
+    case "${LAST_LINE}" in
+        "VERDICT: merge-ready"*)
+            echo "==> merge-ready; refreshing head, CI, and stop labels"
+            approval_published="false"
+            if ! remove_approved; then
+                rc=4
+            elif ! approval_is_current_and_green; then
+                remove_label "${NEEDS_REVIEW_LABEL}"
+                # Preserve the evidence as a commit-pinned comment, but do not
+                # publish approval state for an ineligible revision.
+                submit_pinned_review "COMMENT" "${CLEANED_OUT}" || \
+                    echo "WARN: failed to submit deferred review to ${REPO}#${NUM}" >&2
+            else
+                review_event="APPROVE"
+                if [[ "${PR_AUTHOR}" == "${AGENT_LOGIN}" ]]; then
+                    echo "==> PR authored by ${AGENT_LOGIN}; GitHub forbids self-approval. Submitting review as comment instead."
+                    review_event="COMMENT"
+                fi
+                echo "==> submitting commit-pinned formal review to PR #${NUM}"
+                if ! submit_pinned_review "${review_event}" "${CLEANED_OUT}"; then
+                    echo "WARN: failed to publish review for ${REPO}#${NUM}; approval withheld" >&2
+                    remove_approved || true
+                    rc=4
+                elif ! add_approved; then
+                    rc=4
+                elif ! approval_is_current_and_green; then
+                    echo "WARN: approval eligibility changed during publication; removing approved" >&2
+                    remove_approved || true
+                else
+                    approval_published="true"
+                fi
+            fi
+
+            if [[ "${approval_published}" == "true" ]]; then
+                echo "==> approved reviewed commit ${REVIEW_SHA}; assigning ${HUMAN_LOGIN}"
+                remove_label "${NEEDS_REVIEW_LABEL}"
+                remove_label "in-progress"
+                remove_label "changes-requested"
+                remove_label "blocked"
+                add_assignee_to "${REPO}" "${NUM}" "${HUMAN_LOGIN}"
+                remove_assignee_from "${REPO}" "${NUM}" "${AGENT_LOGIN}"
+
+                # Request review from human
+                echo "==> Requesting review from human ${HUMAN_LOGIN}"
+                gh api -X POST "repos/${REPO}/pulls/${NUM}/requested_reviewers" -f "reviewers[]=${HUMAN_LOGIN}" >/dev/null 2>&1 || true
+
+                # Assign originating issues
+                for issue_num in $(echo "${PR_JSON}" | jq -r '.closingIssuesReferences[].number' 2>/dev/null || true); do
+                    if [[ -n "${issue_num}" && "${issue_num}" != "null" ]]; then
+                        echo "==> Handing over originating issue #${issue_num} to ${HUMAN_LOGIN}"
+                        add_assignee_to "${REPO}" "${issue_num}" "${HUMAN_LOGIN}"
+                        remove_assignee_from "${REPO}" "${issue_num}" "${AGENT_LOGIN}"
+                    fi
+                done
+
+                # Check for automerge and call merge.sh
+                automerge="false"
+                if [[ -f "${CONF_FILE}" ]]; then
+                    automerge=$(python3 "${SCRIPT_DIR}/parse_toml.py" "${CONF_FILE}" "repos.automerge" "${REPO}" 2>/dev/null || echo "false")
+                fi
+                if [[ "${automerge}" == "True" || "${automerge}" == "true" ]]; then
+                    echo "==> automerge enabled for ${REPO}; executing merge.sh"
+                    "$(dirname "$0")/merge.sh" "${REPO}" "${NUM}" "${REVIEW_SHA}" || true
+                fi
+            fi
+            ;;
+        "VERDICT: needs-fix"*)
+            echo "==> needs-fix; labeling changes-requested"
+            remove_label "${NEEDS_REVIEW_LABEL}"
+            remove_label "approved"
+            remove_label "blocked"
+            add_label "changes-requested"
+            echo "==> submitting commit-pinned formal review to PR #${NUM}"
+            submit_pinned_review "REQUEST_CHANGES" "${CLEANED_OUT}" || \
+                echo "WARN: failed to submit review to ${REPO}#${NUM}" >&2
+            ;;
+        "VERDICT: blocked"*)
+            echo "==> blocked; labeling blocked and handing back to ${HUMAN_LOGIN}"
+            remove_label "${NEEDS_REVIEW_LABEL}"
+            remove_label "in-progress"
+            remove_label "approved"
+            remove_label "changes-requested"
+            add_label "blocked"
+            add_assignee_to "${REPO}" "${NUM}" "${HUMAN_LOGIN}"
+            remove_assignee_from "${REPO}" "${NUM}" "${AGENT_LOGIN}"
+
+            # Request review from human
+            echo "==> Requesting review from human ${HUMAN_LOGIN}"
+            gh api -X POST "repos/${REPO}/pulls/${NUM}/requested_reviewers" -f "reviewers[]=${HUMAN_LOGIN}" >/dev/null 2>&1 || true
+
+            # Assign originating issues
+            for issue_num in $(echo "${PR_JSON}" | jq -r '.closingIssuesReferences[].number' 2>/dev/null || true); do
+                if [[ -n "${issue_num}" && "${issue_num}" != "null" ]]; then
+                    echo "==> Handing over originating issue #${issue_num} to ${HUMAN_LOGIN}"
+                    add_assignee_to "${REPO}" "${issue_num}" "${HUMAN_LOGIN}"
+                    remove_assignee_from "${REPO}" "${issue_num}" "${AGENT_LOGIN}"
+                fi
+            done
+            echo "==> submitting commit-pinned formal review to PR #${NUM}"
+            submit_pinned_review "COMMENT" "${CLEANED_OUT}" || \
+                echo "WARN: failed to submit review to ${REPO}#${NUM}" >&2
+            ;;
+    esac
     rm -f "${CLEANED_OUT}"
 elif [[ "${rc}" -eq 3 ]]; then
     echo "==> invalid review output from all available tools; labeling blocked and handing back to ${HUMAN_LOGIN}"
@@ -345,7 +449,7 @@ elif [[ "${rc}" -eq 3 ]]; then
 
 VERDICT: blocked - invalid review output from configured review chain
 EOF
-    gh pr review "${NUM}" -R "${REPO}" --comment -F "${CLEANED_OUT}" >/dev/null 2>&1 || \
+    submit_pinned_review "COMMENT" "${CLEANED_OUT}" || \
         echo "WARN: failed to submit invalid-output review comment to ${REPO}#${NUM}" >&2
     rm -f "${CLEANED_OUT}"
 fi
