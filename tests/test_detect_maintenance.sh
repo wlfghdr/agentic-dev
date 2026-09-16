@@ -26,18 +26,12 @@ cat > "${TMPDIR_TEST}/gh" <<'MOCK'
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ "$*" == "pr list -R acme/app --state open --limit 50 --json number,labels,assignees,mergeStateStatus,mergeable,author,statusCheckRollup" ]]; then
+if [[ "$*" == "issue list -R acme/app --assignee WulfAI --state open --limit 50 --json number,title,url,labels" ]]; then
     printf '[]\n'
-elif [[ "$*" == "pr list -R acme/app --author WulfAI --state open --limit 50 --json number" ]]; then
-    printf '[]\n'
-elif [[ "$*" == "issue list -R acme/app --assignee WulfAI --state open --limit 50 --json number,title,url,labels" ]]; then
-    printf '[]\n'
-elif [[ "$*" == "pr list -R acme/app --assignee WulfAI --state open --limit 50 --json number" ]]; then
-    printf '[]\n'
-elif [[ "$*" == "pr list -R acme/app --assignee WulfAI --state open --limit 50 --json number,title,url,isDraft,statusCheckRollup,labels,assignees,mergeStateStatus,mergeable" ]]; then
-    printf '[]\n'
-elif [[ "$*" == "pr list -R acme/app --author dependabot[bot] --state open --limit 50 --json number,title,url,isDraft,statusCheckRollup,labels,mergeStateStatus,mergeable,isCrossRepository" ]]; then
-    cat <<'JSON'
+elif [[ "$*" == "pr list -R acme/app --state open --limit 100 --json number,title,url,isDraft,statusCheckRollup,labels,assignees,author,mergeStateStatus,mergeable,isCrossRepository,headRefName,body,closingIssuesReferences" ]]; then
+    # Detectors share one open-PR listing; unfiltered gh output names the
+    # Dependabot app "app/dependabot".
+    sed 's/"isDraft"/"author":{"login":"app\/dependabot"},"isDraft"/' <<'JSON'
 [
   {"number":1,"title":"build(deps): bump lib-a","url":"https://example.invalid/pr/1","isDraft":false,"statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}],"labels":[],"mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","isCrossRepository":false},
   {"number":2,"title":"build(deps): bump lib-b","url":"https://example.invalid/pr/2","isDraft":false,"statusCheckRollup":[{"name":"ci","status":"IN_PROGRESS","conclusion":""}],"labels":[],"mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","isCrossRepository":false},
@@ -182,5 +176,64 @@ TRIAGE_STATE_DIR="${TMPDIR_TEST}/failure-state" \
     exit 1
 fi
 grep -F "detection incomplete" "${TMPDIR_TEST}/stderr-failure.log"
+
+# Engineer detection and release re-checks share the open-PR listing and
+# must not spend API calls per issue or per tick.
+cat > "${TMPDIR_TEST}/triage-engineer.toml" <<'TOML'
+[agent]
+login = "WulfAI"
+human_login = "wlfghdr"
+
+[release]
+enabled = true
+
+[[repos]]
+name = "acme/app"
+release = true
+TOML
+
+cat > "${TMPDIR_TEST}/gh" <<'MOCK_ENGINEER'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "$*" >> "${GH_CALLS}"
+if [[ "$1 $2" == "issue list" ]]; then
+    cat <<'JSON'
+[{"number":10,"title":"closed by PR","url":"https://example.invalid/10","labels":[]},
+ {"number":11,"title":"branch exists","url":"https://example.invalid/11","labels":[]},
+ {"number":12,"title":"only mentioned","url":"https://example.invalid/12","labels":[]},
+ {"number":13,"title":"other repo closes same number","url":"https://example.invalid/13","labels":[]}]
+JSON
+elif [[ "$1 $2" == "pr list" ]]; then
+    cat <<'JSON'
+[{"number":20,"title":"fix: a","url":"u","author":{"login":"WulfAI"},"assignees":[],"labels":[],"isDraft":true,"headRefName":"feature","body":"","closingIssuesReferences":[{"number":10,"repository":{"name":"app","owner":{"login":"acme"}}}]},
+ {"number":21,"title":"fix: b","url":"u","author":{"login":"WulfAI"},"assignees":[],"labels":[],"isDraft":true,"headRefName":"agentic-dev/issue-11","body":"","closingIssuesReferences":[]},
+ {"number":22,"title":"docs: c","url":"u","author":{"login":"wlfghdr"},"assignees":[],"labels":[],"isDraft":true,"headRefName":"docs","body":"Related to #12, see also #113","closingIssuesReferences":[{"number":13,"repository":{"name":"other","owner":{"login":"acme"}}}]}]
+JSON
+elif [[ "$*" == "repo view acme/app --json defaultBranchRef" ]]; then
+    printf '{"defaultBranchRef":{"name":"main"}}\n'
+elif [[ "$1" == "api" && "$*" == *"/releases?"* ]]; then
+    printf '[[{"tag_name":"v1.0.0","draft":false,"prerelease":false}]]\n'
+elif [[ "$1" == "api" && "$*" == *"/compare/"* ]]; then
+    printf '{"ahead_by":0}\n'
+else
+    echo "unexpected gh args: $*" >&2
+    exit 99
+fi
+MOCK_ENGINEER
+chmod +x "${TMPDIR_TEST}/gh"
+
+for run in first second; do
+    GH_CALLS="${TMPDIR_TEST}/gh-calls-${run}.log" \
+    PATH="${TMPDIR_TEST}:${PATH}" \
+    TRIAGE_CONFIG="${TMPDIR_TEST}/triage-engineer.toml" \
+    TRIAGE_STATE_DIR="${TMPDIR_TEST}/engineer-state" \
+    "${ROOT}/scripts/detect.py" > "${TMPDIR_TEST}/report-engineer-${run}.json" 2>/dev/null
+done
+
+jq -e '[.items[] | select(.kind == "engineer") | .number] == [12, 13]' "${TMPDIR_TEST}/report-engineer-first.json"
+[[ "$(wc -l < "${TMPDIR_TEST}/gh-calls-first.log")" -eq 5 ]]
+# Second tick: cached negative release check, no per-issue PR searches.
+[[ "$(wc -l < "${TMPDIR_TEST}/gh-calls-second.log")" -eq 2 ]]
+[[ "$(ls "${TMPDIR_TEST}/engineer-state/history" | wc -l)" -eq 1 ]]
 
 echo "maintenance detection tests passed"

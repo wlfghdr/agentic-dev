@@ -104,13 +104,17 @@ defaults = {
     },
     "agy": {
         "command": "agy",
+        # --print takes the prompt as its value, so it must come last in arg
+        # mode; the default 5m print timeout is too short for engineering runs.
         "args": [
-            "--print",
             "--dangerously-skip-permissions",
             "--add-dir",
             "{worktree}",
+            "--print-timeout",
+            "60m",
+            "--print",
         ],
-        "prompt_mode": "stdin",
+        "prompt_mode": "arg",
     },
     "kiro": {
         "command": "kiro-cli",
@@ -189,6 +193,85 @@ for value in values:
     CLI_COMMAND=("${CLI_COMMAND[@]:1}")
 }
 
+cli_cooldown_file() {
+    local dir="${TRIAGE_CLI_COOLDOWN_DIR:-${TRIAGE_STATE_DIR:-${TRIAGE_DIR:-/srv/agentic-dev}/state}/cli-cooldown}"
+    printf '%s/%s\n' "${dir}" "${1//[^A-Za-z0-9._-]/_}"
+}
+
+cli_cooldown_remaining() {
+    # cli_cooldown_remaining TOOL — prints remaining seconds; fails if not cooling.
+    local file until now
+    file="$(cli_cooldown_file "${1}")"
+    [[ -f "${file}" ]] || return 1
+    until="$(head -n 1 "${file}" 2>/dev/null || true)"
+    [[ "${until}" =~ ^[0-9]+$ ]] || return 1
+    now="$(date +%s)"
+    if (( until <= now )); then
+        rm -f "${file}"
+        return 1
+    fi
+    echo $(( until - now ))
+}
+
+cli_chain_available() {
+    # cli_chain_available TOOL... — succeeds if any tool is not cooling down.
+    local tool
+    for tool in "$@"; do
+        cli_cooldown_remaining "${tool}" >/dev/null || return 0
+    done
+    return 1
+}
+
+cli_record_cooldown() {
+    # cli_record_cooldown TOOL OUTPUT_FILE RC
+    # Quota and login failures do not heal within one backoff window. Parking
+    # the CLI keeps every queued item from re-running its prompt against it.
+    local tool="${1}" output_file="${2}" rc="${3}" tail_text seconds reason file until
+    tail_text="$(tail -n 40 "${output_file}" 2>/dev/null || true)"
+    if [[ "${rc}" -eq 127 ]] || grep -Eqi 'native binary not installed|command not found' <<<"${tail_text}"; then
+        seconds="${TRIAGE_CLI_MISSING_COOLDOWN_SECONDS:-3600}"
+        reason="not installed"
+    elif grep -Eqi 'authentication (failed|required|error)|failed to authenticate|oauth[^[:alnum:]]*(session|token)?[^[:alnum:]]*(failed|invalid|expired|required|error)|not logged in|login required|please (log|sign) in|(^|[^[:digit:]])401[^[:alnum:]]+unauthorized' <<<"${tail_text}"; then
+        seconds="${TRIAGE_CLI_AUTH_COOLDOWN_SECONDS:-3600}"
+        reason="authentication"
+    elif grep -Eqi 'usage limit|rate[ -]?limit|quota|credit balance|insufficient credits|too many requests|(^|[^[:digit:]])429([^[:digit:]]|$)|overloaded|try again at' <<<"${tail_text}"; then
+        seconds="${TRIAGE_CLI_LIMIT_COOLDOWN_SECONDS:-900}"
+        reason="usage limit"
+        # Honor an explicit reset time such as "try again at Sep 21st, 2026 10:47 PM".
+        local reset
+        reset="$(python3 - "${tail_text}" <<'PY' 2>/dev/null || true
+import re, sys, time
+from datetime import datetime, timedelta
+m = re.findall(r"try again (?:at|after) ([A-Za-z0-9 ,:]+?(?:AM|PM))", sys.argv[1], re.I)
+if m:
+    text = re.sub(r"(\d+)(st|nd|rd|th)", r"\1", m[-1].strip())
+    now = datetime.now()
+    for fmt in ("%b %d, %Y %I:%M %p", "%B %d, %Y %I:%M %p", "%I:%M %p"):
+        try:
+            at = datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+        if fmt == "%I:%M %p":
+            at = now.replace(hour=at.hour, minute=at.minute, second=0, microsecond=0)
+            if at <= now:
+                at += timedelta(days=1)
+        delta = int((at - now).total_seconds()) + 60
+        if 0 < delta <= 7 * 86400:
+            print(delta)
+        break
+PY
+)"
+        [[ "${reset}" =~ ^[0-9]+$ ]] && seconds="${reset}"
+    else
+        return 0
+    fi
+    file="$(cli_cooldown_file "${tool}")"
+    until=$(( $(date +%s) + seconds ))
+    mkdir -p "$(dirname "${file}")" 2>/dev/null || return 0
+    printf '%s\n%s\n' "${until}" "${reason}" > "${file}"
+    echo "--> ${tool} parked for ${seconds}s (${reason}); remove ${file} to retry sooner"
+}
+
 run_cli_tool() {
     # run_cli_tool CONFIG TOOL WORKTREE PROMPT OUTPUT_FILE
     local config="${1}"
@@ -196,7 +279,13 @@ run_cli_tool() {
     local worktree="${3}"
     local prompt="${4}"
     local output_file="${5}"
-    local rc
+    local rc remaining
+
+    if remaining="$(cli_cooldown_remaining "${tool}")"; then
+        # "cooldown" is a fallback-eligible marker for cli_error_allows_fallback.
+        echo "cooldown: ${tool} parked for another ${remaining}s ($(sed -n 2p "$(cli_cooldown_file "${tool}")"))" | tee "${output_file}"
+        return 75
+    fi
 
     load_cli_command "${config}" "${tool}" "${worktree}" || return $?
 
@@ -209,6 +298,9 @@ run_cli_tool() {
         rc=${PIPESTATUS[1]}
     fi
     set -e
+    if [[ "${rc}" -ne 0 ]]; then
+        cli_record_cooldown "${tool}" "${output_file}" "${rc}"
+    fi
     return "${rc}"
 }
 

@@ -77,6 +77,7 @@ In a mature agentic organization:
   - `merge.sh`: Automatically merges approved PRs if `automerge` is enabled for the repository.
   - `dependabot_merge.sh`: Deterministically merges green Dependabot PRs; behind/conflicting PRs are rebased first.
   - `release.sh`: Creates at most one deterministic GitHub release per repo per UTC day when new commits exist after the latest semver tag.
+  - `gc_worktrees.sh`: Removes dispatch worktrees (and their agent branches) once the issue or PR is closed. Run by `tick.sh` every `TRIAGE_WORKTREE_GC_HOURS` (default 6, `0` disables).
 - `systemd/`
   - `triage-tick.service`: Systemd service to run the orchestrator tick.
   - `triage-tick.timer`: Near-realtime timer that triggers the service every 60 seconds.
@@ -173,6 +174,32 @@ Agent-authored PR titles should follow Conventional Commits (`fix: ...`,
 `feat: ...`, `chore(scope): ...`). The daily release job derives the next
 SemVer version from the merged commit subjects: breaking changes create a major
 bump, `feat` creates a minor bump, and other merged changes create a patch bump.
+
+## Idle Cost and Backpressure
+
+The timer fires every 60 seconds, so every tick is kept cheap and every failure
+mode that cannot heal within one backoff window is parked instead of retried:
+
+- **One PR listing per repository.** `detect.py` fetches open PRs once per repo
+  and derives the open-PR cap, stale-approval demotion, Dependabot, fix/rebase,
+  review, and linked-issue checks from it. Linked PRs are matched on
+  `closingIssuesReferences`, the `issue-<n>` branch, or a closing keyword in the
+  body, which avoids the 30 requests/minute search API.
+- **Release discovery is re-checked hourly** when no commits exist since the
+  latest release (`TRIAGE_RELEASE_RECHECK_SECONDS`, default `3600`).
+- **CLI cooldowns.** When an agent CLI fails with a usage limit, a login
+  failure, or a missing binary, it is parked under `state/cli-cooldown/<tool>`.
+  An explicit reset time such as `try again at Sep 21st, 2026 10:47 PM` is
+  honored; otherwise limits park for `TRIAGE_CLI_LIMIT_COOLDOWN_SECONDS` (900),
+  authentication and missing binaries for `TRIAGE_CLI_AUTH_COOLDOWN_SECONDS` /
+  `TRIAGE_CLI_MISSING_COOLDOWN_SECONDS` (3600). Parked CLIs are skipped inside a
+  chain, and `tick.sh` does not dispatch engineer or review work at all while
+  every CLI in the chain is parked. After re-authenticating a CLI, delete its
+  cooldown file to resume immediately.
+- **Logs and history record activity only.** Idle ticks go to the journal only;
+  `logs/*-tick.log` is kept for ticks that dispatched, warned, or failed, and
+  `state/history/` gets a snapshot only when the detected work changes. Files in
+  `logs/` older than `TRIAGE_LOG_RETENTION_DAYS` (14) are pruned hourly.
 
 ## Maintenance Safety
 

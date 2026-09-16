@@ -37,6 +37,11 @@ if [[ -n "${DISPATCH_ENV_FILE}" && "${DISPATCH_ENV_FILE}" != /* ]]; then
     exit 2
 fi
 
+if [[ -f "${BIN}/cli_dispatch.sh" ]]; then
+    # shellcheck source=scripts/cli_dispatch.sh
+    source "${BIN}/cli_dispatch.sh"
+fi
+
 LOCK_TTL=$((LOCK_TTL_HOURS * 3600))  # failsafe; cleanly-exited dispatchers drop their lock immediately
 DISPATCH_ENABLED="${TRIAGE_ENABLE_DISPATCH:-0}"
 
@@ -76,6 +81,38 @@ cleanup_stale_locks() {
     shopt -u nullglob
 }
 
+llm_chain_available() {
+    # llm_chain_available CHAIN DEFAULT_TOOL... — false only when every CLI in
+    # the chain is parked, so the dispatch would fail without doing any work.
+    declare -F cli_chain_available >/dev/null || return 0
+    load_cli_chain "${CONF_FILE}" "$@"
+    cli_chain_available "${CLI_CHAIN[@]}"
+}
+
+run_housekeeping() {
+    # Hourly: prune old logs. Every TRIAGE_WORKTREE_GC_HOURS: drop worktrees
+    # of closed issues/PRs. Both are cheap to skip and unbounded if never run.
+    local stamp="${STATE}/housekeeping.stamp"
+    local now last gc_stamp gc_hours
+    now="$(date +%s)"
+    last=0
+    [[ -f "${stamp}" ]] && last="$(get_lock_mtime "${stamp}")"
+    if (( now - last >= 3600 )); then
+        touch "${stamp}"
+        find "${LOGDIR}" -type f -mtime +"${TRIAGE_LOG_RETENTION_DAYS:-14}" -delete 2>/dev/null || true
+    fi
+
+    gc_hours="${TRIAGE_WORKTREE_GC_HOURS:-6}"
+    [[ "${DISPATCH_ENABLED}" == "1" && "${gc_hours}" != "0" && -x "${BIN}/gc_worktrees.sh" ]] || return 0
+    gc_stamp="${STATE}/worktree-gc.stamp"
+    last=0
+    [[ -f "${gc_stamp}" ]] && last="$(get_lock_mtime "${gc_stamp}")"
+    if (( now - last >= gc_hours * 3600 )); then
+        touch "${gc_stamp}"
+        "${BIN}/gc_worktrees.sh" || echo "WARN: worktree GC failed" >&2
+    fi
+}
+
 get_lock_mtime() {
     if [[ "$OSTYPE" == "darwin"* ]]; then
         stat -f %m "${1}"
@@ -84,11 +121,15 @@ get_lock_mtime() {
     fi
 }
 
+set +e  # the group below re-enables errexit; the pipeline status is handled after it
 {
+    set -e
     echo "==> tick start $(date -u +%FT%TZ)"
     echo "==> dispatch enabled: ${DISPATCH_ENABLED}"
     echo "==> caps: engineer=${MAX_ENGINEER} review=${MAX_REVIEW} maintenance=${MAX_MAINTENANCE}"
     echo
+
+    run_housekeeping
 
     DETECT_STDOUT="$(mktemp)"
     DETECT_STDERR="$(mktemp)"
@@ -143,6 +184,11 @@ get_lock_mtime() {
                     echo "skip ${KIND} ${REPO}#${NUM} — engineer cap reached (${ENG_RUNNING}/${MAX_ENGINEER})"
                     continue
                 fi
+                # Rebase first tries a deterministic git rebase, so it is never gated.
+                if [[ "${MODE}" != "rebase" ]] && ! llm_chain_available engineer codex claude agy; then
+                    echo "skip ${KIND} ${REPO}#${NUM} — every engineer CLI is parked (cooldown)"
+                    continue
+                fi
                 SCRIPT="${BIN}/engineer.sh"
                 case "${MODE}" in
                     pr)     CMD_ARGS=(--pr "${REPO}" "${NUM}") ;;
@@ -154,6 +200,10 @@ get_lock_mtime() {
             review)
                 if (( REV_RUNNING >= MAX_REVIEW )); then
                     echo "skip ${KIND} ${REPO}#${NUM} — review cap reached (${REV_RUNNING}/${MAX_REVIEW})"
+                    continue
+                fi
+                if ! llm_chain_available review claude codex agy; then
+                    echo "skip ${KIND} ${REPO}#${NUM} — every review CLI is parked (cooldown)"
                     continue
                 fi
                 SCRIPT="${BIN}/review.sh"
@@ -235,3 +285,12 @@ get_lock_mtime() {
 
     echo "==> tick done $(date -u +%FT%TZ)"
 } 2>&1 | tee "${TICK_LOG}"
+rc=${PIPESTATUS[0]}
+set -e
+
+# Output is in the journal either way; keep a file only for ticks that acted,
+# warned, or failed instead of one file per idle minute.
+if [[ "${rc}" -eq 0 ]] && ! grep -Eq '^==> dispatch [a-z]+/|WARN|FATAL|\[fatal\]|\[demote\]' "${TICK_LOG}"; then
+    rm -f "${TICK_LOG}"
+fi
+exit "${rc}"
