@@ -52,7 +52,7 @@ elif [[ "$*" == "repo view acme/app --json defaultBranchRef" ]]; then
 elif [[ "$*" == "api --paginate --slurp -H Accept: application/vnd.github+json repos/acme/app/releases?per_page=100" ]]; then
     cat <<'JSON'
 [[{"tag_name":"v9.9.9","draft":true,"prerelease":false},{"tag_name":"v1.0.0","draft":false,"prerelease":false}],
- [{"tag_name":"v8.0.0","draft":false,"prerelease":true},{"tag_name":"nightly","draft":false,"prerelease":false},{"tag_name":"v2.0.0","draft":false,"prerelease":false}]]
+ [{"tag_name":"v8.0.0","draft":false,"prerelease":true},{"tag_name":"v03.0.0","draft":false,"prerelease":false},{"tag_name":"nightly","draft":false,"prerelease":false},{"tag_name":"v2.0.0","draft":false,"prerelease":false}]]
 JSON
 elif [[ "$*" == "api -X GET repos/acme/app/compare/v2.0.0...main" ]]; then
     printf '{"ahead_by":2}\n'

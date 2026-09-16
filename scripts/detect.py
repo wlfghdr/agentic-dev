@@ -342,7 +342,10 @@ def highest_semver_tag(release_pages: list[Any]) -> str:
             if item.get("draft") or item.get("prerelease"):
                 continue
             tag = item.get("tag_name") or ""
-            match = re.fullmatch(r"v([0-9]+)\.([0-9]+)\.([0-9]+)", tag)
+            match = re.fullmatch(
+                r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)",
+                tag,
+            )
             if match:
                 candidates.append((tuple(map(int, match.groups())), tag))
     return max(candidates, default=((0, 0, 0), ""))[1]

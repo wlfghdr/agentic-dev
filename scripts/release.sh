@@ -174,7 +174,7 @@ config_yaml_version() {
 validate_strict_version() {
     local version="${1}"
     local source="${2}"
-    local semver_re='^[0-9]+\.[0-9]+\.[0-9]+$'
+    local semver_re='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
     if [[ ! "${version}" =~ ${semver_re} ]]; then
         echo "FATAL: ${source} must be strict numeric SemVer (MAJOR.MINOR.PATCH), got '${version}'" >&2
         exit 4
@@ -220,9 +220,12 @@ changelog_notes() {
 }
 
 has_established_version_contract() {
+    local tracked_paths
+    tracked_paths="$(git -C "${LOCAL_REPO}" ls-tree -r --name-only "origin/${DEFAULT_BRANCH}")" || return 1
+
     git -C "${LOCAL_REPO}" cat-file -e "origin/${DEFAULT_BRANCH}:VERSION" 2>/dev/null ||
         git -C "${LOCAL_REPO}" cat-file -e "origin/${DEFAULT_BRANCH}:CONFIG.yaml" 2>/dev/null ||
-        git -C "${LOCAL_REPO}" ls-tree -r --name-only "origin/${DEFAULT_BRANCH}" | grep -E '(^|/)plugin\.json$' >/dev/null ||
+        grep -E '(^|/)plugin\.json$' <<<"${tracked_paths}" >/dev/null ||
         git -C "${LOCAL_REPO}" grep -q 'MARKETING_VERSION' "origin/${DEFAULT_BRANCH}" -- '*.pbxproj' 2>/dev/null ||
         git -C "${LOCAL_REPO}" grep -q 'versionName' "origin/${DEFAULT_BRANCH}" -- '*.gradle' '*.gradle.kts' 2>/dev/null
 }
@@ -243,7 +246,7 @@ next_version() {
     local version="${1}"
     local bump="${2}"
     local major minor patch
-    local semver_re='^[0-9]+\.[0-9]+\.[0-9]+$'
+    local semver_re='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
     if [[ ! "${version}" =~ ${semver_re} ]]; then
         echo "FATAL: invalid base version '${version}'" >&2
         exit 4

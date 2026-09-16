@@ -11,6 +11,7 @@ trap 'rm -rf "${TMPDIR_TEST}"' EXIT
 source "${ROOT}/scripts/release_lib.sh"
 [[ "$(printf '%s\n' '[[{"tag_name":"v6.4.1","draft":false,"prerelease":false}]]' | latest_stable_release_tag)" == "v6.4.1" ]]
 [[ "$(printf '%s\n' '[[{"tag_name":"v11.0.0","draft":true,"prerelease":false},{"tag_name":"v10.0.0","draft":false,"prerelease":false}],[{"tag_name":"v12.0.0","draft":false,"prerelease":true},{"tag_name":"v9.20.0","draft":false,"prerelease":false},{"tag_name":"10.0.0","draft":false,"prerelease":false},{"tag_name":"v9.3.0-rc.1","draft":false,"prerelease":false}]]' | latest_stable_release_tag)" == "v10.0.0" ]]
+[[ "$(printf '%s\n' '[[{"tag_name":"v01.2.3","draft":false,"prerelease":false},{"tag_name":"v1.2.2","draft":false,"prerelease":false}]]' | latest_stable_release_tag)" == "v1.2.2" ]]
 [[ -z "$(printf '%s\n' '[[]]' | latest_stable_release_tag)" ]]
 
 make_repo() {
@@ -155,6 +156,32 @@ make_config_repo() {
     git clone "${remote}" "${local_repo}" >/dev/null 2>&1
 }
 
+make_large_manifest_only_repo() {
+    local name="${1}"
+    local remote="${TMPDIR_TEST}/${name}.git"
+    local seed="${TMPDIR_TEST}/${name}-seed"
+    local local_repo="${TMPDIR_TEST}/repos/${name}"
+    local index
+
+    git init --bare "${remote}" >/dev/null
+    git init "${seed}" >/dev/null
+    git -C "${seed}" config user.email "test@example.invalid"
+    git -C "${seed}" config user.name "Release Test"
+    mkdir -p "${seed}/000-plugin" "${seed}/zzz-files"
+    printf '{"version":"1.0.0"}\n' > "${seed}/000-plugin/plugin.json"
+    for index in $(seq -w 1 5000); do
+        printf 'fixture\n' > "${seed}/zzz-files/file-${index}.txt"
+    done
+    git -C "${seed}" add .
+    git -C "${seed}" commit -m "feat: manifest-only repository" >/dev/null
+    git -C "${seed}" branch -M main
+    git -C "${seed}" remote add origin "${remote}"
+    git -C "${seed}" push origin main >/dev/null
+
+    mkdir -p "${TMPDIR_TEST}/repos"
+    git clone "${remote}" "${local_repo}" >/dev/null 2>&1
+}
+
 make_mobile_repo() {
     local name="${1}"
     local source="${2}"
@@ -195,9 +222,11 @@ make_repo major v1.2.3 "feat!: change public contract"
 make_repo patch v1.2.3 "docs: update readme"
 make_repo none v1.2.3 "fix: already tagged"
 make_version_repo badversion '1.$(touch /tmp/agentic-dev-version-pwned).0'
+make_version_repo leadingzero 01.2.3
 make_version_plugin_repo versionplugin 1.2.3 1.3.0
 make_version_plugin_repo mismatchedplugin 1.2.3 1.3.0 1.2.3
 make_config_repo framework 4.4.1 4.5.0
+make_large_manifest_only_repo manifestonly
 make_mobile_repo iosapp ios 2.4
 make_mobile_repo androidapp android 3.7.1
 make_mobile_repo mobilewithoutadapter ios 5.0
@@ -223,6 +252,8 @@ case "$*" in
         printf '[[{"tag_name":"v4.4.1","draft":false,"prerelease":false}]]\n'
         ;;
     api\ --paginate\ --slurp\ -H\ Accept:\ application/vnd.github+json\ repos/acme/badversion/releases\?per_page=100|\
+    api\ --paginate\ --slurp\ -H\ Accept:\ application/vnd.github+json\ repos/acme/leadingzero/releases\?per_page=100|\
+    api\ --paginate\ --slurp\ -H\ Accept:\ application/vnd.github+json\ repos/acme/manifestonly/releases\?per_page=100|\
     api\ --paginate\ --slurp\ -H\ Accept:\ application/vnd.github+json\ repos/acme/iosapp/releases\?per_page=100|\
     api\ --paginate\ --slurp\ -H\ Accept:\ application/vnd.github+json\ repos/acme/androidapp/releases\?per_page=100|\
     api\ --paginate\ --slurp\ -H\ Accept:\ application/vnd.github+json\ repos/acme/mobilewithoutadapter/releases\?per_page=100|\
@@ -292,6 +323,15 @@ release = true
 version_source = "version"
 
 [[repos]]
+name = "acme/leadingzero"
+release = true
+version_source = "version"
+
+[[repos]]
+name = "acme/manifestonly"
+release = true
+
+[[repos]]
 name = "acme/versionplugin"
 release = true
 version_source = "version"
@@ -354,6 +394,18 @@ fi
 [[ ! -e /tmp/agentic-dev-version-pwned ]]
 after_badversion_count="$(wc -l < "${GH_RELEASE_LOG}")"
 [[ "${after_count}" == "${after_badversion_count}" ]]
+
+if "${ROOT}/scripts/release.sh" acme/leadingzero; then
+    echo "leading-zero VERSION unexpectedly released" >&2
+    exit 1
+fi
+[[ "${after_badversion_count}" == "$(wc -l < "${GH_RELEASE_LOG}")" ]]
+
+if "${ROOT}/scripts/release.sh" acme/manifestonly; then
+    echo "large manifest-only repository unexpectedly released" >&2
+    exit 1
+fi
+[[ "${after_badversion_count}" == "$(wc -l < "${GH_RELEASE_LOG}")" ]]
 
 "${ROOT}/scripts/release.sh" acme/versionplugin
 grep -F "release create v1.3.0 -R acme/versionplugin" "${GH_RELEASE_LOG}"

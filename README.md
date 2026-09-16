@@ -210,6 +210,14 @@ Failure behavior:
   manifest, or changelog stops publication with instructions to reconcile the
   metadata in a pull request; the release job never edits the default branch.
 
+Upgrade notice: this is a breaking release-contract change. Before installing
+this version, every release-enabled repository with existing version metadata
+must set `version_source` explicitly. Choose the adapter matching the
+authoritative metadata, or choose `conventional` to retain commit-derived
+versioning intentionally. Without that migration, release publication fails
+closed until the repository configuration is updated. Roll back to the prior
+installed scripts if the configuration cannot be migrated immediately.
+
 Rollback:
 - Set `[dependabot].enabled = false` or a repo's
   `dependabot_automerge = false` to stop dependency auto-merges.

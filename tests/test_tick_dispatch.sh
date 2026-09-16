@@ -13,7 +13,7 @@ install -m 0755 "${ROOT}/scripts/parse_toml.py" "${RUNTIME}/bin/parse_toml.py"
 cat > "${RUNTIME}/bin/detect.py" <<'MOCK'
 #!/usr/bin/env bash
 cat <<'JSON'
-{"itemCount":1,"liveLockSlugs":["engineer-acme_app-7"],"items":[{"kind":"engineer","mode":"issue","repo":"acme/app","number":7,"title":"test","url":"https://example.invalid/7"}]}
+{"itemCount":1,"liveLockSlugs":[],"items":[{"kind":"engineer","mode":"issue","repo":"acme/app","number":7,"title":"test","url":"https://example.invalid/7"}]}
 JSON
 MOCK
 
@@ -46,10 +46,15 @@ TOML
 SYSTEMD_RUN_ARGS="${TEST_ROOT}/systemd-run.args" \
 PATH="${TEST_ROOT}/mock-bin:${PATH}" \
 TRIAGE_DIR="${RUNTIME}" \
+TRIAGE_CONFIG="${RUNTIME}/triage.toml" \
 TRIAGE_ENABLE_DISPATCH=1 \
 "${RUNTIME}/bin/tick.sh" >/dev/null
 
-grep -Fx -- "--property=EnvironmentFile=-${TEST_ROOT}/dispatch.env" "${TEST_ROOT}/systemd-run.args"
+if ! grep -Fx -- "--property=EnvironmentFile=-${TEST_ROOT}/dispatch.env" "${TEST_ROOT}/systemd-run.args"; then
+    echo "dispatch did not forward the configured environment file" >&2
+    sed -n '1,120p' "${TEST_ROOT}/systemd-run.args" >&2
+    exit 1
+fi
 
 # A dispatcher creation failure must not strand the item lock.
 rm -f "${RUNTIME}/state/locks/engineer-acme_app-7.lock"
@@ -57,6 +62,7 @@ FAIL_SYSTEMD_RUN=1 \
 SYSTEMD_RUN_ARGS="${TEST_ROOT}/systemd-run-failed.args" \
 PATH="${TEST_ROOT}/mock-bin:${PATH}" \
 TRIAGE_DIR="${RUNTIME}" \
+TRIAGE_CONFIG="${RUNTIME}/triage.toml" \
 TRIAGE_ENABLE_DISPATCH=1 \
 "${RUNTIME}/bin/tick.sh" >/dev/null
 [[ ! -e "${RUNTIME}/state/locks/engineer-acme_app-7.lock" ]]
@@ -66,7 +72,10 @@ cat > "${RUNTIME}/triage.toml" <<'TOML'
 dispatch_env_file = "relative/dispatch.env"
 TOML
 
-if PATH="${TEST_ROOT}/mock-bin:${PATH}" TRIAGE_DIR="${RUNTIME}" "${RUNTIME}/bin/tick.sh" >"${TEST_ROOT}/invalid.out" 2>&1; then
+if PATH="${TEST_ROOT}/mock-bin:${PATH}" \
+    TRIAGE_DIR="${RUNTIME}" \
+    TRIAGE_CONFIG="${RUNTIME}/triage.toml" \
+    "${RUNTIME}/bin/tick.sh" >"${TEST_ROOT}/invalid.out" 2>&1; then
     echo "relative runtime.dispatch_env_file unexpectedly accepted" >&2
     exit 1
 fi

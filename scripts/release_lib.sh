@@ -12,7 +12,7 @@ latest_stable_release_tag() {
             | select((.draft // false) | not)
             | select((.prerelease // false) | not)
             | .tag_name
-            | select(type == "string" and test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))]
+            | select(type == "string" and test("^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"))]
         | sort_by(.[1:] | split(".") | map(tonumber))
         | last // ""
     '
