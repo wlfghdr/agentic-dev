@@ -34,8 +34,8 @@ enabled = false
 
 [release]
 # Create at most one GitHub release per watched repo per UTC day if commits
-# exist after the latest semver tag. Version bumps are derived from
-# Conventional Commit style merged PR titles/squash commits.
+# exist after the latest stable semver release. Drafts, prereleases and tags
+# other than strict vMAJOR.MINOR.PATCH are not release baselines.
 enabled = false
 
 # Built-in definitions exist for codex, claude, agy, and kiro. Override one
@@ -52,6 +52,8 @@ name = "owner/repo-name"
 automerge = false
 dependabot_automerge = false
 release = false
-# Optional mobile app version source: "ios" reads MARKETING_VERSION and
-# "android" reads versionName. Omit to derive SemVer from commits/tags.
-# version_source = "ios"
+# Release adapter: "version" reads VERSION, "config_yaml" reads
+# framework_version, "ios" reads MARKETING_VERSION, and "android" reads
+# versionName. "conventional" derives SemVer from commits/tags. Repositories
+# with existing version metadata must configure their authoritative adapter.
+# version_source = "conventional"

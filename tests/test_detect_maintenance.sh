@@ -49,8 +49,11 @@ elif [[ "$*" == "pr list -R acme/app --author dependabot[bot] --state open --lim
 JSON
 elif [[ "$*" == "repo view acme/app --json defaultBranchRef" ]]; then
     printf '{"defaultBranchRef":{"name":"main"}}\n'
-elif [[ "$*" == "release list -R acme/app --limit 100 --json tagName,isDraft" ]]; then
-    printf '[{"tagName":"v9.9.9","isDraft":true},{"tagName":"v1.0.0","isDraft":false},{"tagName":"nightly","isDraft":false},{"tagName":"v2.0.0","isDraft":false},{"tagName":"v0.9.9","isDraft":false}]\n'
+elif [[ "$*" == "api --paginate --slurp -H Accept: application/vnd.github+json repos/acme/app/releases?per_page=100" ]]; then
+    cat <<'JSON'
+[[{"tag_name":"v9.9.9","draft":true,"prerelease":false},{"tag_name":"v1.0.0","draft":false,"prerelease":false}],
+ [{"tag_name":"v8.0.0","draft":false,"prerelease":true},{"tag_name":"v03.0.0","draft":false,"prerelease":false},{"tag_name":"nightly","draft":false,"prerelease":false},{"tag_name":"v2.0.0","draft":false,"prerelease":false}]]
+JSON
 elif [[ "$*" == "api -X GET repos/acme/app/compare/v2.0.0...main" ]]; then
     printf '{"ahead_by":2}\n'
 else

@@ -331,22 +331,35 @@ def default_branch(repo: str) -> str:
     return "main"
 
 
-def highest_semver_tag(releases: list[dict[str, Any]]) -> str:
-    """Return the numerically highest published vMAJOR.MINOR.PATCH tag."""
+def highest_semver_tag(release_pages: list[Any]) -> str:
+    """Return the highest stable vMAJOR.MINOR.PATCH from REST API pages."""
     candidates: list[tuple[tuple[int, int, int], str]] = []
-    for item in releases:
-        if item.get("isDraft"):
-            continue
-        tag = item.get("tagName") or ""
-        match = re.fullmatch(r"v([0-9]+)\.([0-9]+)\.([0-9]+)", tag)
-        if match:
-            candidates.append((tuple(map(int, match.groups())), tag))
+    for page in release_pages:
+        releases = page if isinstance(page, list) else [page]
+        for item in releases:
+            if not isinstance(item, dict):
+                continue
+            if item.get("draft") or item.get("prerelease"):
+                continue
+            tag = item.get("tag_name") or ""
+            match = re.fullmatch(
+                r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)",
+                tag,
+            )
+            if match:
+                candidates.append((tuple(map(int, match.groups())), tag))
     return max(candidates, default=((0, 0, 0), ""))[1]
 
 
 def repo_has_changes_since_latest_release(repo: str, branch: str) -> bool:
-    latest = gh(["release", "list", "-R", repo, "--limit", "100", "--json", "tagName,isDraft"])
-    latest_tag = highest_semver_tag(latest) if isinstance(latest, list) else ""
+    # Keep this policy identical to release.sh: inspect every REST page and
+    # ignore drafts, prereleases, and tags that are not strict vX.Y.Z SemVer.
+    releases = gh([
+        "api", "--paginate", "--slurp",
+        "-H", "Accept: application/vnd.github+json",
+        f"repos/{repo}/releases?per_page=100",
+    ])
+    latest_tag = highest_semver_tag(releases) if isinstance(releases, list) else ""
 
     if not latest_tag:
         commits = gh([

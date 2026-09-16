@@ -129,8 +129,9 @@ name = "organization/repository-name"
 automerge = true
 dependabot_automerge = false
 release = false
-# Optional: "ios" reads MARKETING_VERSION; "android" reads versionName.
-version_source = "ios"
+# Choose the repository's release contract explicitly when releases are on:
+# "version", "config_yaml", "ios", "android", or "conventional".
+version_source = "conventional"
 ```
 
 Built-in command definitions are provided for `codex`, `claude`, `agy`, and
@@ -195,7 +196,27 @@ Failure behavior:
 - Missing or unreadable maintenance config fails closed. No merge or release is
   authorized without the explicit repository opt-in.
 - Releases run at most once per UTC day per repository and only when commits
-  exist after the latest SemVer GitHub release tag.
+  exist after the latest stable GitHub release whose tag is strict
+  `vMAJOR.MINOR.PATCH`. Discovery follows every releases API page, ignores
+  drafts and prereleases, and chooses the numerically greatest usable tag.
+- `version_source = "version"` reads a root `VERSION`; `"config_yaml"` reads
+  `framework_version` from root `CONFIG.yaml`; `"ios"` and `"android"` read
+  their platform manifests; and `"conventional"` derives the next version
+  from commit subjects. Repositories with `VERSION`, `CONFIG.yaml`, plugin
+  manifests, or supported mobile version fields fail closed if no adapter is
+  configured instead of falling back to `0.0.0`.
+- Authoritative adapters require a matching `CHANGELOG.md` release section.
+  Every tracked `plugin.json` version must also match. A stale version,
+  manifest, or changelog stops publication with instructions to reconcile the
+  metadata in a pull request; the release job never edits the default branch.
+
+Upgrade notice: this is a breaking release-contract change. Before installing
+this version, every release-enabled repository with existing version metadata
+must set `version_source` explicitly. Choose the adapter matching the
+authoritative metadata, or choose `conventional` to retain commit-derived
+versioning intentionally. Without that migration, release publication fails
+closed until the repository configuration is updated. Roll back to the prior
+installed scripts if the configuration cannot be migrated immediately.
 
 Rollback:
 - Set `[dependabot].enabled = false` or a repo's
@@ -204,6 +225,30 @@ Rollback:
   releases.
 - Reinstall after versioned script changes with `./install.sh`; runtime config
   is preserved by the installer and can be reverted independently.
+
+### Forward-only suite version reconciliation
+
+Existing public tags are immutable history. Do not move, delete, or recreate
+the already published `agentic-kb` `v6.4.1`, `agentic-enterprise` `v1.0.0`, or
+`agentic-dev` `v0.4.0` tags. Reconcile each repository through its normal pull
+request review workflow, then allow the next release to move forward:
+
+- `agentic-kb`: prepare at least `6.4.2` in `VERSION`, every packaged plugin
+  manifest, README version references, and a `CHANGELOG.md` `6.4.2` section;
+  configure `version_source = "version"`.
+- `agentic-enterprise`: prepare a version later than both the public tag and
+  its established `4.4.1` framework line (for example `4.4.2`) in
+  `CONFIG.yaml`, README references, packaged manifests, and changelog;
+  configure `version_source = "config_yaml"`.
+- `agentic-dev`: prepare at least `0.4.1` across its authoritative version and
+  release notes before enabling the corresponding adapter. If this repository
+  intentionally has no stored version contract, explicitly choose
+  `version_source = "conventional"` and add the `0.4.1` changelog narrative in
+  the reviewed change.
+
+After those pull requests merge, the deterministic job may publish new tags
+at the reconciled commits. Automatic repair must never rewrite the three
+historical public releases.
 
 ---
 
