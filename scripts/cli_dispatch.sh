@@ -228,7 +228,9 @@ cli_record_cooldown() {
     # the CLI keeps every queued item from re-running its prompt against it.
     local tool="${1}" output_file="${2}" rc="${3}" tail_text seconds reason file until
     tail_text="$(tail -n 40 "${output_file}" 2>/dev/null || true)"
-    if [[ "${rc}" -eq 127 ]] || grep -Eqi 'native binary not installed|command not found' <<<"${tail_text}"; then
+    # Only the wrapper's own 127 or a CLI startup diagnostic means "not installed";
+    # a failing task command in the transcript does not.
+    if [[ "${rc}" -eq 127 ]] || grep -Eqi 'native binary not installed|postinstall did not run|optional dependency was not downloaded' <<<"${tail_text}"; then
         seconds="${TRIAGE_CLI_MISSING_COOLDOWN_SECONDS:-3600}"
         reason="not installed"
     elif grep -Eqi 'authentication (failed|required|error)|failed to authenticate|oauth[^[:alnum:]]*(session|token)?[^[:alnum:]]*(failed|invalid|expired|required|error)|not logged in|login required|please (log|sign) in|(^|[^[:digit:]])401[^[:alnum:]]+unauthorized' <<<"${tail_text}"; then

@@ -111,7 +111,9 @@ HISTORY_RETENTION_DAYS = int(os.environ.get("TRIAGE_HISTORY_RETENTION_DAYS", "14
 # A negative "no commits since latest release" result only changes when main
 # moves; re-checking it every tick costs three API calls per repo per minute.
 RELEASE_RECHECK_SECONDS = int(os.environ.get("TRIAGE_RELEASE_RECHECK_SECONDS", "3600"))
-# One open-PR listing per repo feeds every PR detector in a tick.
+# One open-PR listing per repo feeds every PR detector in a tick. gh pages the
+# request itself, so a high ceiling costs nothing on repos with few open PRs.
+OPEN_PR_LIMIT = int(os.environ.get("TRIAGE_OPEN_PR_LIMIT", "1000"))
 OPEN_PR_FIELDS = (
     "number,title,url,isDraft,statusCheckRollup,labels,assignees,author,"
     "mergeStateStatus,mergeable,isCrossRepository,headRefName,body,"
@@ -184,13 +186,24 @@ def non_successful_completed_checks(checks: list[dict[str, Any]]) -> list[dict[s
 
 
 def list_open_prs(repo: str) -> list[dict[str, Any]]:
+    global GH_FAILURES
     prs = gh([
         "pr", "list", "-R", repo,
         "--state", "open",
-        "--limit", "100",
+        "--limit", str(OPEN_PR_LIMIT),
         "--json", OPEN_PR_FIELDS,
     ])
-    return prs if isinstance(prs, list) else []
+    if not isinstance(prs, list):
+        return []
+    if len(prs) >= OPEN_PR_LIMIT:
+        # Detectors would silently lose targets beyond the fetched slice.
+        GH_FAILURES += 1
+        print(
+            f"[warn] {repo}: open PRs hit the fetch limit of {OPEN_PR_LIMIT}; "
+            "raise TRIAGE_OPEN_PR_LIMIT",
+            file=sys.stderr,
+        )
+    return prs
 
 
 def pr_author(pr: dict[str, Any]) -> str:
@@ -199,7 +212,7 @@ def pr_author(pr: dict[str, Any]) -> str:
 
 def count_open_agent_prs(prs: list[dict[str, Any]]) -> int:
     """Open PRs authored by AGENT_LOGIN in repo — drives the per-repo cap."""
-    return sum(1 for pr in prs if pr_author(pr) == AGENT_LOGIN)
+    return sum(1 for pr in prs if same_login(pr_author(pr), AGENT_LOGIN))
 
 
 def pr_links_issue(pr: dict[str, Any], repo: str, number: int) -> bool:
@@ -223,13 +236,13 @@ def pr_links_issue(pr: dict[str, Any], repo: str, number: int) -> bool:
 
 
 def demote_stale_approved_prs(repo: str, prs: list[dict[str, Any]]) -> None:
+    global GH_FAILURES
     """Find open PRs authored by AGENT_LOGIN that have the 'approved' label
     but are conflicting, dirty, behind main, or have bad/red CI checks,
     and demote them back to the agent loop.
     """
     for pr in prs:
-        author = (pr.get("author") or {}).get("login")
-        if author != AGENT_LOGIN:
+        if not same_login(pr_author(pr), AGENT_LOGIN):
             continue
         
         labels = pr_label_names(pr)
@@ -248,30 +261,40 @@ def demote_stale_approved_prs(repo: str, prs: list[dict[str, Any]]) -> None:
             num = pr["number"]
             print(f"[demote] {repo}#{num}: approved PR is {merge_state}/{mergeable} (red CI: {has_bad_checks}), returning to engineering loop", file=sys.stderr)
             
-            # 1. Remove approved label
-            subprocess.run([
-                "gh", "api", "-X", "DELETE",
-                f"repos/{repo}/issues/{num}/labels/{APPROVED_LABEL}"
-            ], capture_output=True)
-            
-            # 2. Add AGENT_LOGIN as assignee
-            subprocess.run([
-                "gh", "api", "-X", "POST",
-                f"repos/{repo}/issues/{num}/assignees",
-                "-f", f"assignees[]={AGENT_LOGIN}"
-            ], capture_output=True)
-            
-            # 3. Remove HUMAN_LOGIN as assignee
-            subprocess.run([
-                "gh", "api", "-X", "DELETE",
-                f"repos/{repo}/issues/{num}/assignees",
-                "-f", f"assignees[]={HUMAN_LOGIN}"
-            ], capture_output=True)
+            mutations = [
+                # 1. Remove approved label
+                ["gh", "api", "-X", "DELETE",
+                 f"repos/{repo}/issues/{num}/labels/{APPROVED_LABEL}"],
+                # 2. Add AGENT_LOGIN as assignee
+                ["gh", "api", "-X", "POST",
+                 f"repos/{repo}/issues/{num}/assignees",
+                 "-f", f"assignees[]={AGENT_LOGIN}"],
+                # 3. Remove HUMAN_LOGIN as assignee
+                ["gh", "api", "-X", "DELETE",
+                 f"repos/{repo}/issues/{num}/assignees",
+                 "-f", f"assignees[]={HUMAN_LOGIN}"],
+            ]
+            failed = False
+            for command in mutations:
+                result = subprocess.run(command, capture_output=True, text=True)
+                if result.returncode != 0:
+                    failed = True
+                    GH_FAILURES += 1
+                    print(
+                        f"[warn] demotion step failed for {repo}#{num}: "
+                        f"{' '.join(command[2:5])}: {result.stderr.strip()}",
+                        file=sys.stderr,
+                    )
+            if failed:
+                # A partial demotion leaves the PR under human control; fail the
+                # tick rather than dispatching against a mirrored state that
+                # never happened. The next tick refetches and retries.
+                continue
 
             # Mirror the mutation locally so this tick's detectors see it.
             pr["labels"] = [l for l in pr.get("labels", []) if l.get("name") != APPROVED_LABEL]
             pr["assignees"] = [
-                a for a in pr.get("assignees", []) if a and a.get("login") != HUMAN_LOGIN
+                a for a in pr.get("assignees", []) if a and not same_login(a.get("login"), HUMAN_LOGIN)
             ] + [{"login": AGENT_LOGIN}]
 
 
@@ -323,8 +346,13 @@ def detect_engineer_items(repo: str, prs: list[dict[str, Any]]) -> list[dict]:
     return out
 
 
+def same_login(a: str | None, b: str | None) -> bool:
+    # GitHub logins are case-insensitive; gh's --assignee/--author filters were too.
+    return (a or "").lower() == (b or "").lower()
+
+
 def assigned_to(pr: dict[str, Any], login: str) -> bool:
-    return any(a.get("login") == login for a in pr.get("assignees", []) if a)
+    return any(same_login(a.get("login"), login) for a in pr.get("assignees", []) if a)
 
 
 def pr_label_names(pr: dict[str, Any]) -> set[str]:
@@ -529,9 +557,8 @@ def detect_review_items(repo: str, prs: list[dict[str, Any]]) -> list[dict]:
 
 def is_dependabot_author(pr: dict[str, Any]) -> bool:
     # Unfiltered gh list output reports the GitHub App as "app/dependabot".
-    author = pr_author(pr)
     bot = DEPENDABOT_LOGIN[:-len("[bot]")] if DEPENDABOT_LOGIN.endswith("[bot]") else DEPENDABOT_LOGIN
-    return author in (DEPENDABOT_LOGIN, bot, "app/" + bot)
+    return any(same_login(pr_author(pr), name) for name in (DEPENDABOT_LOGIN, bot, "app/" + bot))
 
 
 def detect_dependabot_items(repo: str, prs: list[dict[str, Any]]) -> list[dict]:
@@ -709,14 +736,15 @@ def main() -> int:
         previous = {}
     changed = any(previous.get(k) != report[k] for k in ("watchRepos", "items", "liveLockSlugs"))
     last.write_text(json.dumps(report, indent=2))
+    history = STATE_DIR / "history"
+    history.mkdir(parents=True, exist_ok=True)
     # History records transitions only; an idle 60s tick would otherwise add
-    # ~20k identical snapshots per retention window.
+    # ~20k identical snapshots per retention window. Retention still applies to
+    # the snapshots already written, so pruning runs on every tick.
     if changed:
-        history = STATE_DIR / "history"
-        history.mkdir(parents=True, exist_ok=True)
         history_name = generated_at.replace("-", "").replace(":", "")
         (history / f"{history_name}.json").write_text(json.dumps(report, indent=2))
-        prune_history(history)
+    prune_history(history)
 
     json.dump(report, sys.stdout, indent=2)
     sys.stdout.write("\n")

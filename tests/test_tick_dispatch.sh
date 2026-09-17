@@ -119,6 +119,16 @@ TRIAGE_ENABLE_DISPATCH=1 \
 "${RUNTIME}/bin/tick.sh" >/dev/null 2>&1
 [[ -e "${TEST_ROOT}/systemd-run-parked.args" ]]
 
+# Configuration is never evaluated as arithmetic by the root-owned tick.
+PATH="${TEST_ROOT}/mock-bin:${PATH}" \
+TRIAGE_DIR="${RUNTIME}" \
+TRIAGE_CONFIG="${RUNTIME}/triage.toml" \
+TRIAGE_ENABLE_DISPATCH=1 \
+TRIAGE_WORKTREE_GC_HOURS='a[$(touch "'"${TEST_ROOT}"'/injected")]' \
+"${RUNTIME}/bin/tick.sh" > "${TEST_ROOT}/injection.out" 2>&1
+[[ ! -e "${TEST_ROOT}/injected" ]]
+grep -F "ignoring invalid TRIAGE_WORKTREE_GC_HOURS" "${TEST_ROOT}/injection.out"
+
 cat > "${RUNTIME}/triage.toml" <<'TOML'
 [runtime]
 dispatch_env_file = "relative/dispatch.env"

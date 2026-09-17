@@ -28,7 +28,7 @@ set -euo pipefail
 
 if [[ "$*" == "issue list -R acme/app --assignee WulfAI --state open --limit 50 --json number,title,url,labels" ]]; then
     printf '[]\n'
-elif [[ "$*" == "pr list -R acme/app --state open --limit 100 --json number,title,url,isDraft,statusCheckRollup,labels,assignees,author,mergeStateStatus,mergeable,isCrossRepository,headRefName,body,closingIssuesReferences" ]]; then
+elif [[ "$*" == "pr list -R acme/app --state open --limit 1000 --json number,title,url,isDraft,statusCheckRollup,labels,assignees,author,mergeStateStatus,mergeable,isCrossRepository,headRefName,body,closingIssuesReferences" ]]; then
     # Detectors share one open-PR listing; unfiltered gh output names the
     # Dependabot app "app/dependabot".
     sed 's/"isDraft"/"author":{"login":"app\/dependabot"},"isDraft"/' <<'JSON'
@@ -235,5 +235,64 @@ jq -e '[.items[] | select(.kind == "engineer") | .number] == [12, 13]' "${TMPDIR
 # Second tick: cached negative release check, no per-issue PR searches.
 [[ "$(wc -l < "${TMPDIR_TEST}/gh-calls-second.log")" -eq 2 ]]
 [[ "$(ls "${TMPDIR_TEST}/engineer-state/history" | wc -l)" -eq 1 ]]
+
+# Logins are compared case-insensitively, a failed demotion is never mirrored
+# into dispatch decisions, and history retention applies while idle.
+cat > "${TMPDIR_TEST}/triage-demote.toml" <<'TOML'
+[agent]
+login = "wulfai"
+human_login = "WLFGHDR"
+
+[[repos]]
+name = "acme/app"
+TOML
+
+cat > "${TMPDIR_TEST}/gh" <<'MOCK_DEMOTE'
+#!/usr/bin/env bash
+set -uo pipefail
+if [[ "$1 $2" == "issue list" ]]; then
+    printf '[]\n'
+elif [[ "$1 $2" == "pr list" ]]; then
+    cat <<'JSON'
+[{"number":30,"title":"fix: stale approval","url":"u","author":{"login":"WulfAI"},"assignees":[{"login":"wlfghdr"}],"labels":[{"name":"approved"}],"isDraft":false,"mergeStateStatus":"BEHIND","mergeable":"MERGEABLE","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}],"headRefName":"x","body":"","closingIssuesReferences":[]}]
+JSON
+elif [[ "$1" == "api" ]]; then
+    echo "403 Forbidden" >&2
+    exit 1
+else
+    echo "unexpected gh args: $*" >&2
+    exit 99
+fi
+MOCK_DEMOTE
+chmod +x "${TMPDIR_TEST}/gh"
+
+if PATH="${TMPDIR_TEST}:${PATH}" \
+TRIAGE_CONFIG="${TMPDIR_TEST}/triage-demote.toml" \
+TRIAGE_STATE_DIR="${TMPDIR_TEST}/demote-state" \
+"${ROOT}/scripts/detect.py" > "${TMPDIR_TEST}/report-demote.json" 2>"${TMPDIR_TEST}/stderr-demote.log"; then
+    echo "detect succeeded despite failed demotion mutations" >&2
+    exit 1
+fi
+grep -F "demotion step failed" "${TMPDIR_TEST}/stderr-demote.log"
+grep -F "detection incomplete" "${TMPDIR_TEST}/stderr-demote.log"
+# An incomplete tick emits no report at all, so nothing can be dispatched
+# against a demotion that never happened.
+[[ ! -s "${TMPDIR_TEST}/report-demote.json" ]]
+
+mkdir -p "${TMPDIR_TEST}/idle-state/history"
+: > "${TMPDIR_TEST}/idle-state/history/20000101T000000.json"
+touch -t 200001010000 "${TMPDIR_TEST}/idle-state/history/20000101T000000.json"
+cat > "${TMPDIR_TEST}/gh" <<'MOCK_IDLE'
+#!/usr/bin/env bash
+printf '[]\n'
+MOCK_IDLE
+chmod +x "${TMPDIR_TEST}/gh"
+for run in first second; do
+    PATH="${TMPDIR_TEST}:${PATH}" \
+    TRIAGE_CONFIG="${TMPDIR_TEST}/triage-demote.toml" \
+    TRIAGE_STATE_DIR="${TMPDIR_TEST}/idle-state" \
+    "${ROOT}/scripts/detect.py" >/dev/null 2>&1
+done
+[[ ! -e "${TMPDIR_TEST}/idle-state/history/20000101T000000.json" ]]
 
 echo "maintenance detection tests passed"

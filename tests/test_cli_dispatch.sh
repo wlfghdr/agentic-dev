@@ -158,4 +158,12 @@ cli_chain_available limited
 run_cli_tool "${TMPDIR_TEST}/triage.toml" failing "${WORKTREE}" "prompt" "${OUTPUT}" >/dev/null || true
 [[ ! -e "$(cli_cooldown_file failing)" ]]
 
+# A task command that is missing does not make the agent itself "not installed".
+LIMIT_MESSAGE="npm: command not found" \
+    run_cli_tool "${TMPDIR_TEST}/triage.toml" limited "${WORKTREE}" "prompt" "${OUTPUT}" >/dev/null || true
+if [[ -e "$(cli_cooldown_file limited)" ]]; then
+    echo "a failing task command parked the agent CLI" >&2
+    exit 1
+fi
+
 echo "cli dispatch tests passed"

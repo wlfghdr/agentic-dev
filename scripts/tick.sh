@@ -93,16 +93,27 @@ run_housekeeping() {
     # Hourly: prune old logs. Every TRIAGE_WORKTREE_GC_HOURS: drop worktrees
     # of closed issues/PRs. Both are cheap to skip and unbounded if never run.
     local stamp="${STATE}/housekeeping.stamp"
-    local now last gc_stamp gc_hours
+    local now last gc_stamp gc_hours retention_days
+    retention_days="${TRIAGE_LOG_RETENTION_DAYS:-14}"
+    if [[ ! "${retention_days}" =~ ^[0-9]+$ ]]; then
+        echo "WARN: ignoring invalid TRIAGE_LOG_RETENTION_DAYS='${retention_days}'" >&2
+        retention_days=14
+    fi
     now="$(date +%s)"
     last=0
     [[ -f "${stamp}" ]] && last="$(get_lock_mtime "${stamp}")"
     if (( now - last >= 3600 )); then
         touch "${stamp}"
-        find "${LOGDIR}" -type f -mtime +"${TRIAGE_LOG_RETENTION_DAYS:-14}" -delete 2>/dev/null || true
+        find "${LOGDIR}" -type f -mtime +"${retention_days}" -delete 2>/dev/null || true
     fi
 
+    # Never evaluate unvalidated configuration inside (( )) — it would run
+    # embedded command substitutions as root.
     gc_hours="${TRIAGE_WORKTREE_GC_HOURS:-6}"
+    if [[ ! "${gc_hours}" =~ ^[0-9]+$ ]]; then
+        echo "WARN: ignoring invalid TRIAGE_WORKTREE_GC_HOURS='${gc_hours}'" >&2
+        gc_hours=6
+    fi
     [[ "${DISPATCH_ENABLED}" == "1" && "${gc_hours}" != "0" && -x "${BIN}/gc_worktrees.sh" ]] || return 0
     gc_stamp="${STATE}/worktree-gc.stamp"
     last=0

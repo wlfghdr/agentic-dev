@@ -184,7 +184,10 @@ mode that cannot heal within one backoff window is parked instead of retried:
   and derives the open-PR cap, stale-approval demotion, Dependabot, fix/rebase,
   review, and linked-issue checks from it. Linked PRs are matched on
   `closingIssuesReferences`, the `issue-<n>` branch, or a closing keyword in the
-  body, which avoids the 30 requests/minute search API.
+  body, which avoids the 30 requests/minute search API. `gh` pages the request
+  itself, so the `TRIAGE_OPEN_PR_LIMIT` ceiling (1000) costs nothing on repos
+  with few open PRs; reaching it fails the tick instead of silently detecting
+  against a truncated slice.
 - **Release discovery is re-checked hourly** when no commits exist since the
   latest release (`TRIAGE_RELEASE_RECHECK_SECONDS`, default `3600`).
 - **CLI cooldowns.** When an agent CLI fails with a usage limit, a login
