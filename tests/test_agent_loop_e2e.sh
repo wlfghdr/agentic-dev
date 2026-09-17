@@ -80,6 +80,10 @@ def pr_detection():
         "mergeable": "MERGEABLE",
         "headRepositoryOwner": {"login": "acme"},
         "isCrossRepository": False,
+        "author": {"login": "agent"},
+        "headRefName": "agentic-dev/issue-1",
+        "body": "Closes #1",
+        "closingIssuesReferences": [{"number": 1, "repository": {"name": "app", "owner": {"login": "acme"}}}],
     }
 
 def pr_metadata():

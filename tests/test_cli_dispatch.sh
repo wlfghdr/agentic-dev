@@ -102,4 +102,68 @@ for message in \
     fi
 done
 
+# agy takes the prompt as the value of --print, so it must be the last argument.
+load_cli_command /nonexistent agy "${WORKTREE}"
+[[ "${CLI_PROMPT_MODE}" == "arg" ]]
+[[ "${CLI_COMMAND[${#CLI_COMMAND[@]}-1]}" == "--print" ]]
+
+# Quota and login failures park the CLI so queued items skip it until reset.
+export TRIAGE_CLI_COOLDOWN_DIR="${TMPDIR_TEST}/cooldown"
+cat > "${TMPDIR_TEST}/limited-cli" <<'MOCK'
+#!/usr/bin/env bash
+echo "${LIMIT_MESSAGE}"
+exit 1
+MOCK
+chmod +x "${TMPDIR_TEST}/limited-cli"
+cat >> "${TMPDIR_TEST}/triage.toml" <<TOML
+
+[cli_tools.limited]
+command = "${TMPDIR_TEST}/limited-cli"
+
+[cli_tools.expired]
+command = "${TMPDIR_TEST}/limited-cli"
+TOML
+
+LIMIT_MESSAGE="ERROR: You've hit your usage limit. Try again at $(LC_ALL=C date -v+2H '+%b %-dth, %Y %-I:%M %p' 2>/dev/null || LC_ALL=C date -d '+2 hours' '+%b %-dth, %Y %-I:%M %p')." \
+    run_cli_tool "${TMPDIR_TEST}/triage.toml" limited "${WORKTREE}" "prompt" "${OUTPUT}" >/dev/null || true
+remaining="$(cli_cooldown_remaining limited)"
+(( remaining > 6600 && remaining <= 7260 ))
+
+LIMIT_MESSAGE="Failed to authenticate: OAuth session expired and could not be refreshed" \
+    run_cli_tool "${TMPDIR_TEST}/triage.toml" expired "${WORKTREE}" "prompt" "${OUTPUT}" >/dev/null || true
+[[ "$(sed -n 2p "$(cli_cooldown_file expired)")" == "authentication" ]]
+
+if cli_chain_available limited expired; then
+    echo "fully parked chain reported as available" >&2
+    exit 1
+fi
+cli_chain_available limited kiro
+
+# A parked CLI is not executed and reports a fallback-eligible failure.
+set +e
+LIMIT_MESSAGE="must not run" run_cli_tool "${TMPDIR_TEST}/triage.toml" limited "${WORKTREE}" "prompt" "${OUTPUT}" >/dev/null
+rc=$?
+set -e
+[[ "${rc}" -eq 75 ]]
+if grep -q "must not run" "${OUTPUT}"; then
+    echo "parked CLI was executed" >&2
+    exit 1
+fi
+cli_error_allows_fallback "${OUTPUT}"
+
+# Expired cooldowns are cleared; ordinary task failures never park a CLI.
+printf '%s\nusage limit\n' "$(( $(date +%s) - 1 ))" > "$(cli_cooldown_file limited)"
+cli_chain_available limited
+[[ ! -e "$(cli_cooldown_file limited)" ]]
+run_cli_tool "${TMPDIR_TEST}/triage.toml" failing "${WORKTREE}" "prompt" "${OUTPUT}" >/dev/null || true
+[[ ! -e "$(cli_cooldown_file failing)" ]]
+
+# A task command that is missing does not make the agent itself "not installed".
+LIMIT_MESSAGE="npm: command not found" \
+    run_cli_tool "${TMPDIR_TEST}/triage.toml" limited "${WORKTREE}" "prompt" "${OUTPUT}" >/dev/null || true
+if [[ -e "$(cli_cooldown_file limited)" ]]; then
+    echo "a failing task command parked the agent CLI" >&2
+    exit 1
+fi
+
 echo "cli dispatch tests passed"
