@@ -19,9 +19,21 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html): `MA
 
 ### Added
 
+- **CLI cooldowns** in `cli_dispatch.sh` — usage-limit, login, and missing-binary failures park the CLI (honoring "try again at …" reset times), parked CLIs are skipped in chains, and `tick.sh` no longer dispatches engineer/review work while the whole chain is parked. Previously every queued item re-ran its full failing chain every 20 minutes.
+- **Worktree GC** (`gc_worktrees.sh`) — removes worktrees and agent branches of closed issues and merged/closed PRs every 6 hours.
+
 - **Workflow labels reference** in `README.md` — documented the full label model the loop coordinates through (`do-not-work`, `blocked`, `in-progress`, `needs-review`, `changes-requested`, `approved`), separating the two human control points from agent-managed state, and how the three review verdicts (`merge-ready` / `needs-fix` / `blocked`) map onto labels. The `do-not-work` and `blocked` control points were previously only discoverable in `detect.py` source.
 
+### Changed
+
+- **Cheaper detection** — `detect.py` uses one open-PR listing per repository instead of per-detector listings, per-PR `gh pr view`, and per-issue search API calls; negative release checks are cached for an hour; history snapshots are written only when detected work changes.
+- **Tick logs** — idle ticks no longer create a log file per minute; `logs/` is pruned after 14 days.
+
 ### Fixed
+
+- **Reviews bound to immutable PR revisions** in `scripts/review.sh` and `scripts/merge.sh` — the reviewed head and base commits are captured once, used for checkout, metadata, and diff evidence, and revalidated at the approval and merge boundaries together with CI, mergeability, PR state, and human stop labels. Formal reviews are now submitted pinned to the reviewed commit, and `approved` is rolled back when publication or eligibility fails. Previously a review could approve or merge a revision it never inspected if the PR moved mid-review.
+
+- **`agy` default invocation** — `--print` takes the prompt as its value, so the built-in definition now passes the prompt as the final argument with a 60-minute print timeout.
 
 - **Review verdict / dispatch wording consistency** in `README.md` — the flow diagram now lists all three review verdicts (`merge-ready` / `needs-fix` / `blocked`); the third (`blocked`) was implemented in `review.sh` but missing from the docs. Also standardized "spawns" → "dispatches" so the README matches the "dispatch" vocabulary used throughout the scripts.
 - **Default deployment path consistency** in `install.sh` — the default `TRIAGE_DIR` now resolves to `/srv/agentic-dev`, matching the in-repo script defaults (`tick.sh`, `review.sh`, `merge.sh`), the systemd unit `ExecStart`, the `sed` substitution token, the README, and `install.sh`'s own header comments. Previously the installer relocated to a brand-specific `/srv/wulfai/triage`, which contradicted every other reference and leaked a vendor name into a vendor-neutral default. Override with the `TRIAGE_DIR` environment variable as before.

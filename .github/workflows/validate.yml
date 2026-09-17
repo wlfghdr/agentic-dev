@@ -27,6 +27,9 @@ jobs:
       - name: Run tick dispatch regression tests
         run: ./tests/test_tick_dispatch.sh
 
+      - name: Run worktree GC tests
+        run: ./tests/test_gc_worktrees.sh
+
       - name: Run agent loop end-to-end tests
         run: ./tests/test_agent_loop_e2e.sh
 
@@ -44,6 +47,9 @@ jobs:
 
       - name: Run review freshness regression tests
         run: ./tests/test_review_freshness.sh
+
+      - name: Run review handoff regression tests
+        run: ./tests/test_review_handoff.sh
 
       - name: Run maintenance detection regression tests
         run: ./tests/test_detect_maintenance.sh

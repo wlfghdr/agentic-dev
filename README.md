@@ -77,6 +77,7 @@ In a mature agentic organization:
   - `merge.sh`: Automatically merges approved PRs if `automerge` is enabled for the repository.
   - `dependabot_merge.sh`: Deterministically merges green Dependabot PRs; behind/conflicting PRs are rebased first.
   - `release.sh`: Creates at most one deterministic GitHub release per repo per UTC day when new commits exist after the latest semver tag.
+  - `gc_worktrees.sh`: Removes dispatch worktrees (and their agent branches) once the issue or PR is closed. Run by `tick.sh` every `TRIAGE_WORKTREE_GC_HOURS` (default 6, `0` disables).
 - `systemd/`
   - `triage-tick.service`: Systemd service to run the orchestrator tick.
   - `triage-tick.timer`: Near-realtime timer that triggers the service every 60 seconds.
@@ -129,8 +130,9 @@ name = "organization/repository-name"
 automerge = true
 dependabot_automerge = false
 release = false
-# Optional: "ios" reads MARKETING_VERSION; "android" reads versionName.
-version_source = "ios"
+# Choose the repository's release contract explicitly when releases are on:
+# "version", "config_yaml", "ios", "android", or "conventional".
+version_source = "conventional"
 ```
 
 Built-in command definitions are provided for `codex`, `claude`, `agy`, and
@@ -183,6 +185,35 @@ Agent-authored PR titles should follow Conventional Commits (`fix: ...`,
 SemVer version from the merged commit subjects: breaking changes create a major
 bump, `feat` creates a minor bump, and other merged changes create a patch bump.
 
+## Idle Cost and Backpressure
+
+The timer fires every 60 seconds, so every tick is kept cheap and every failure
+mode that cannot heal within one backoff window is parked instead of retried:
+
+- **One PR listing per repository.** `detect.py` fetches open PRs once per repo
+  and derives the open-PR cap, stale-approval demotion, Dependabot, fix/rebase,
+  review, and linked-issue checks from it. Linked PRs are matched on
+  `closingIssuesReferences`, the `issue-<n>` branch, or a closing keyword in the
+  body, which avoids the 30 requests/minute search API. `gh` pages the request
+  itself, so the `TRIAGE_OPEN_PR_LIMIT` ceiling (1000) costs nothing on repos
+  with few open PRs; reaching it fails the tick instead of silently detecting
+  against a truncated slice.
+- **Release discovery is re-checked hourly** when no commits exist since the
+  latest release (`TRIAGE_RELEASE_RECHECK_SECONDS`, default `3600`).
+- **CLI cooldowns.** When an agent CLI fails with a usage limit, a login
+  failure, or a missing binary, it is parked under `state/cli-cooldown/<tool>`.
+  An explicit reset time such as `try again at Sep 21st, 2026 10:47 PM` is
+  honored; otherwise limits park for `TRIAGE_CLI_LIMIT_COOLDOWN_SECONDS` (900),
+  authentication and missing binaries for `TRIAGE_CLI_AUTH_COOLDOWN_SECONDS` /
+  `TRIAGE_CLI_MISSING_COOLDOWN_SECONDS` (3600). Parked CLIs are skipped inside a
+  chain, and `tick.sh` does not dispatch engineer or review work at all while
+  every CLI in the chain is parked. After re-authenticating a CLI, delete its
+  cooldown file to resume immediately.
+- **Logs and history record activity only.** Idle ticks go to the journal only;
+  `logs/*-tick.log` is kept for ticks that dispatched, warned, or failed, and
+  `state/history/` gets a snapshot only when the detected work changes. Files in
+  `logs/` older than `TRIAGE_LOG_RETENTION_DAYS` (14) are pruned hourly.
+
 ## Maintenance Safety
 
 Dependabot merging and daily releases are state-changing maintenance jobs, so
@@ -205,7 +236,27 @@ Failure behavior:
 - Missing or unreadable maintenance config fails closed. No merge or release is
   authorized without the explicit repository opt-in.
 - Releases run at most once per UTC day per repository and only when commits
-  exist after the latest SemVer GitHub release tag.
+  exist after the latest stable GitHub release whose tag is strict
+  `vMAJOR.MINOR.PATCH`. Discovery follows every releases API page, ignores
+  drafts and prereleases, and chooses the numerically greatest usable tag.
+- `version_source = "version"` reads a root `VERSION`; `"config_yaml"` reads
+  `framework_version` from root `CONFIG.yaml`; `"ios"` and `"android"` read
+  their platform manifests; and `"conventional"` derives the next version
+  from commit subjects. Repositories with `VERSION`, `CONFIG.yaml`, plugin
+  manifests, or supported mobile version fields fail closed if no adapter is
+  configured instead of falling back to `0.0.0`.
+- Authoritative adapters require a matching `CHANGELOG.md` release section.
+  Every tracked `plugin.json` version must also match. A stale version,
+  manifest, or changelog stops publication with instructions to reconcile the
+  metadata in a pull request; the release job never edits the default branch.
+
+Upgrade notice: this is a breaking release-contract change. Before installing
+this version, every release-enabled repository with existing version metadata
+must set `version_source` explicitly. Choose the adapter matching the
+authoritative metadata, or choose `conventional` to retain commit-derived
+versioning intentionally. Without that migration, release publication fails
+closed until the repository configuration is updated. Roll back to the prior
+installed scripts if the configuration cannot be migrated immediately.
 
 Rollback:
 - Set `[dependabot].enabled = false` or a repo's
@@ -214,6 +265,30 @@ Rollback:
   releases.
 - Reinstall after versioned script changes with `./install.sh`; runtime config
   is preserved by the installer and can be reverted independently.
+
+### Forward-only suite version reconciliation
+
+Existing public tags are immutable history. Do not move, delete, or recreate
+the already published `agentic-kb` `v6.4.1`, `agentic-enterprise` `v1.0.0`, or
+`agentic-dev` `v0.4.0` tags. Reconcile each repository through its normal pull
+request review workflow, then allow the next release to move forward:
+
+- `agentic-kb`: prepare at least `6.4.2` in `VERSION`, every packaged plugin
+  manifest, README version references, and a `CHANGELOG.md` `6.4.2` section;
+  configure `version_source = "version"`.
+- `agentic-enterprise`: prepare a version later than both the public tag and
+  its established `4.4.1` framework line (for example `4.4.2`) in
+  `CONFIG.yaml`, README references, packaged manifests, and changelog;
+  configure `version_source = "config_yaml"`.
+- `agentic-dev`: prepare at least `0.4.1` across its authoritative version and
+  release notes before enabling the corresponding adapter. If this repository
+  intentionally has no stored version contract, explicitly choose
+  `version_source = "conventional"` and add the `0.4.1` changelog narrative in
+  the reviewed change.
+
+After those pull requests merge, the deterministic job may publish new tags
+at the reconciled commits. Automatic repair must never rewrite the three
+historical public releases.
 
 ---
 

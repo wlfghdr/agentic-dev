@@ -85,6 +85,10 @@ def pr_detection():
         "headRefOid": head_oid,
         "baseRefOid": base_oid,
         "state": "OPEN",
+        "author": {"login": "agent"},
+        "headRefName": "agentic-dev/issue-1",
+        "body": "Closes #1",
+        "closingIssuesReferences": [{"number": 1, "repository": {"name": "app", "owner": {"login": "acme"}}}],
     }
 
 def pr_metadata():
@@ -95,7 +99,7 @@ def pr_metadata():
         "headRefName": "agentic-dev/issue-1",
         "author": {"login": "agent"},
         "files": [{"path": "app.txt"}],
-        "closingIssuesReferences": [{"number": 1}],
+        "closingIssuesReferences": [{"number": 1, "repository": {"name": "app", "owner": {"login": "acme"}}}],
         "reviewDecision": "",
         "reviews": [],
         "comments": [],
