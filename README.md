@@ -170,6 +170,16 @@ The loop coordinates through a small set of GitHub labels. Two are **human contr
 
 The three review verdicts emitted by `review.sh` map onto labels as: `merge-ready` → `approved`, `needs-fix` → `changes-requested`, `blocked` → `blocked`.
 
+Review approval and automerge are bound to the immutable head commit inspected
+by the reviewer. Publishing approval requires permission to read PR metadata and
+checks, create a commit-pinned review, and update issue labels. Automerge also
+requires permission to merge the PR. If the head or base changes, checks are not
+successful, a human stop label is present, review publication fails, or the
+pinned merge is rejected, the wrapper defers the merge and does not retain the
+`approved` label. To stop automatic merging, set the repository's `automerge`
+value to `false`; for an individual PR, apply `blocked`, `do-not-merge`, or
+`do-not-work` and remove `approved` if it is already present.
+
 Agent-authored PR titles should follow Conventional Commits (`fix: ...`,
 `feat: ...`, `chore(scope): ...`). The daily release job derives the next
 SemVer version from the merged commit subjects: breaking changes create a major

@@ -23,6 +23,16 @@ git -C "${LOCAL}" add fixture.txt
 git -C "${LOCAL}" commit -m "test: add fixture" >/dev/null
 git -C "${LOCAL}" push origin HEAD:main >/dev/null
 git --git-dir="${REMOTE}" update-ref refs/pull/7/head "$(git -C "${LOCAL}" rev-parse HEAD)"
+HEAD_OID="$(git -C "${LOCAL}" rev-parse HEAD)"
+
+# review.sh pins every review to immutable head/base revisions and refreshes
+# eligibility before publishing, so each fixture carries a green, mergeable
+# snapshot of the reviewed PR.
+pr_json() {
+    # pr_json CLOSING_ISSUES_JSON
+    printf '{"author":{"login":"contributor"},"baseRefName":"main","headRefName":"feature","headRefOid":"%s","baseRefOid":"%s","state":"OPEN","isDraft":false,"mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","labels":[],"assignees":[],"statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}],"closingIssuesReferences":%s}' \
+        "${HEAD_OID}" "${HEAD_OID}" "${1}"
+}
 
 cat > "${MOCK_BIN}/gh" <<'MOCK'
 #!/usr/bin/env bash
@@ -95,7 +105,7 @@ run_review() {
 
 # Same-repo and cross-repo references retain their own canonical repository,
 # including distinct repositories whose issue numbers happen to match.
-REVIEW_PR_JSON='{"author":{"login":"contributor"},"closingIssuesReferences":[{"number":42,"repository":{"name":"app","owner":{"login":"acme"}}},{"number":42,"repository":{"name":"project","owner":{"login":"other"}}},{"number":9,"repository":{"name":"repo","owner":{"login":"third"}}}]}'
+REVIEW_PR_JSON="$(pr_json '[{"number":42,"repository":{"name":"app","owner":{"login":"acme"}}},{"number":42,"repository":{"name":"project","owner":{"login":"other"}}},{"number":9,"repository":{"name":"repo","owner":{"login":"third"}}}]')"
 REVIEW_VERDICT='VERDICT: merge-ready'
 FAIL_API_TARGET=''
 FAIL_API_OPERATION=''
@@ -107,7 +117,7 @@ grep -Fq 'repos/third/repo/issues/9/assignees' "${GH_API_LOG}"
 
 # Blocked handoffs use the referenced repository. If assigning the human fails,
 # the agent remains assigned so the issue is never left without an owner.
-REVIEW_PR_JSON='{"author":{"login":"contributor"},"closingIssuesReferences":[{"number":55,"repository":{"name":"failing","owner":{"login":"other"}}}]}'
+REVIEW_PR_JSON="$(pr_json '[{"number":55,"repository":{"name":"failing","owner":{"login":"other"}}}]')"
 REVIEW_VERDICT='VERDICT: blocked - external dependency'
 FAIL_API_TARGET='repos/other/failing/issues/55/assignees'
 FAIL_API_OPERATION='-X POST'
@@ -118,7 +128,7 @@ grep -Fq "WARN: failed to add assignee 'human' to other/failing#55" <<<"${blocke
 
 # Missing repository identity is explicit and fails closed. In particular, it
 # is never substituted with the PR repository for a possibly cross-repo issue.
-REVIEW_PR_JSON='{"author":{"login":"contributor"},"closingIssuesReferences":[{"number":77,"repository":null},{"number":78,"repository":{"name":"repo","owner":null}}]}'
+REVIEW_PR_JSON="$(pr_json '[{"number":77,"repository":null},{"number":78,"repository":{"name":"repo","owner":null}}]')"
 REVIEW_VERDICT='VERDICT: blocked - inaccessible issue'
 FAIL_API_TARGET=''
 FAIL_API_OPERATION=''
@@ -129,7 +139,7 @@ grep -Fq 'WARN: skipping closing issue reference with incomplete or invalid repo
 grep -Fq 'WARN: skipping closing issue reference with incomplete or invalid repository identity: <missing>#78' <<<"${incomplete_log}"
 
 # Invalid reviewer output follows the same repository-aware blocked handoff.
-REVIEW_PR_JSON='{"author":{"login":"contributor"},"closingIssuesReferences":[{"number":88,"repository":{"name":"output","owner":{"login":"invalid"}}}]}'
+REVIEW_PR_JSON="$(pr_json '[{"number":88,"repository":{"name":"output","owner":{"login":"invalid"}}}]')"
 REVIEW_VERDICT='review completed without protocol verdict'
 FAIL_API_TARGET=''
 run_review expect-failure >/dev/null

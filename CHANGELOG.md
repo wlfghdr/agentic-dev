@@ -31,6 +31,8 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html): `MA
 
 ### Fixed
 
+- **Reviews bound to immutable PR revisions** in `scripts/review.sh` and `scripts/merge.sh` — the reviewed head and base commits are captured once, used for checkout, metadata, and diff evidence, and revalidated at the approval and merge boundaries together with CI, mergeability, PR state, and human stop labels. Formal reviews are now submitted pinned to the reviewed commit, and `approved` is rolled back when publication or eligibility fails. Previously a review could approve or merge a revision it never inspected if the PR moved mid-review.
+
 - **`agy` default invocation** — `--print` takes the prompt as its value, so the built-in definition now passes the prompt as the final argument with a 60-minute print timeout.
 
 - **Review verdict / dispatch wording consistency** in `README.md` — the flow diagram now lists all three review verdicts (`merge-ready` / `needs-fix` / `blocked`); the third (`blocked`) was implemented in `review.sh` but missing from the docs. Also standardized "spawns" → "dispatches" so the README matches the "dispatch" vocabulary used throughout the scripts.

@@ -105,7 +105,12 @@ HUMAN_LOGIN = CONFIG.get("agent", {}).get("human_login", "human-login")
 APPROVED_LABEL = "approved"
 CHANGES_REQUESTED_LABEL = "changes-requested"
 BLOCKED_LABEL = "blocked"
-TERMINAL_REVIEW_LABELS = {APPROVED_LABEL, CHANGES_REQUESTED_LABEL, BLOCKED_LABEL}
+TERMINAL_REVIEW_LABELS = {
+    APPROVED_LABEL,
+    CHANGES_REQUESTED_LABEL,
+    BLOCKED_LABEL,
+    "do-not-work",
+}
 STATE_DIR = Path(os.environ.get("TRIAGE_STATE_DIR", "/srv/agentic-dev/state"))
 HISTORY_RETENTION_DAYS = int(os.environ.get("TRIAGE_HISTORY_RETENTION_DAYS", "14"))
 # A negative "no commits since latest release" result only changes when main
@@ -164,6 +169,7 @@ def bad_checks(checks: list[dict[str, Any]]) -> list[dict[str, Any]]:
         c
         for c in checks
         if c.get("conclusion") in ("FAILURE", "CANCELLED", "TIMED_OUT")
+        or c.get("state") in ("ERROR", "FAILURE")
     ]
 
 
@@ -172,6 +178,7 @@ def pending_checks(checks: list[dict[str, Any]]) -> list[dict[str, Any]]:
         c
         for c in checks
         if c.get("status") in ("IN_PROGRESS", "QUEUED", "PENDING", "WAITING")
+        or c.get("state") in ("EXPECTED", "PENDING")
     ]
 
 
@@ -180,8 +187,11 @@ def non_successful_completed_checks(checks: list[dict[str, Any]]) -> list[dict[s
     return [
         c
         for c in checks
-        if c.get("status") != "COMPLETED"
-        or (c.get("conclusion") or "").upper() not in acceptable
+        if not (
+            (c.get("status") == "COMPLETED"
+             and (c.get("conclusion") or "").upper() in acceptable)
+            or (c.get("state") or "").upper() == "SUCCESS"
+        )
     ]
 
 

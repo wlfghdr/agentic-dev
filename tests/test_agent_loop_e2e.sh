@@ -68,6 +68,8 @@ def assignees(names):
     return [{"login": name} for name in names]
 
 def pr_detection():
+    head_oid = subprocess.check_output(["git", f"--git-dir={os.environ['E2E_REMOTE']}", "rev-parse", "refs/pull/2/head"], text=True).strip()
+    base_oid = subprocess.check_output(["git", f"--git-dir={os.environ['E2E_REMOTE']}", "rev-parse", "refs/heads/main"], text=True).strip()
     return {
         "number": 2,
         "title": "fix: implement e2e issue",
@@ -80,6 +82,9 @@ def pr_detection():
         "mergeable": "MERGEABLE",
         "headRepositoryOwner": {"login": "acme"},
         "isCrossRepository": False,
+        "headRefOid": head_oid,
+        "baseRefOid": base_oid,
+        "state": "OPEN",
         "author": {"login": "agent"},
         "headRefName": "agentic-dev/issue-1",
         "body": "Closes #1",
@@ -186,7 +191,14 @@ if args and args[0] == "api":
     number = int(parts[4]) if len(parts) > 4 and parts[3] in ("issues", "pulls") and parts[4].isdigit() else None
     target_labels = state["issue_labels"] if number == 1 else state["pr_labels"]
     target_assignees = state["issue_assignees"] if number == 1 else state["pr_assignees"]
-    if "/labels" in endpoint:
+    if endpoint.endswith("/reviews") and method == "POST":
+        commit_id = next((item.split("=", 1)[1] for item in args if item.startswith("commit_id=")), "")
+        expected = subprocess.check_output(["git", f"--git-dir={os.environ['E2E_REMOTE']}", "rev-parse", "refs/pull/2/head"], text=True).strip()
+        if commit_id != expected:
+            print("review was not pinned to current head", file=sys.stderr)
+            sys.exit(1)
+        state["review_count"] += 1
+    elif "/labels" in endpoint:
         if method == "POST":
             value = next((item.split("=", 1)[1] for item in args if item.startswith("labels[]=")), "")
             if value and value not in target_labels:
@@ -333,6 +345,15 @@ jq -e '.phase == "issue" and .review_count == 0 and .merge_count == 0' "${STATE}
 run_tick
 [[ "$(jq -r .phase "${STATE}")" == "pr" ]]
 [[ "$(git --git-dir="${REMOTE}" show refs/pull/2/head:app.txt)" == *"implemented by agent"* ]]
+
+# A human do-not-work label pauses review before any reviewer is dispatched.
+jq '.pr_labels = ["do-not-work"]' "${STATE}" > "${STATE}.next"
+mv "${STATE}.next" "${STATE}"
+run_tick
+jq -e '.review_count == 0' "${STATE}" >/dev/null
+jq -e '.itemCount == 0' "${RUNTIME}/state/last-tick.json" >/dev/null
+jq '.pr_labels = []' "${STATE}" > "${STATE}.next"
+mv "${STATE}.next" "${STATE}"
 
 run_tick
 jq -e '.pr_labels | index("changes-requested")' "${STATE}" >/dev/null

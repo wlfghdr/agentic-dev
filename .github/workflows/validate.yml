@@ -45,6 +45,9 @@ jobs:
       - name: Run review verdict regression tests
         run: ./tests/test_review_verdict.sh
 
+      - name: Run review freshness regression tests
+        run: ./tests/test_review_freshness.sh
+
       - name: Run review handoff regression tests
         run: ./tests/test_review_handoff.sh
 
