@@ -103,6 +103,7 @@ max_engineer = 3            # Max parallel engineering dispatches
 max_review = 2              # Max parallel review dispatches
 max_maintenance = 1         # Max parallel Dependabot/release jobs
 open_pr_cap_per_repo = 3    # Cap open PRs per repo to match human approval bandwidth
+max_review_rounds = 3       # needs-fix verdicts per PR before handing back to the human
 lock_ttl_hours = 2          # TTL for stale locks
 
 [runtime]

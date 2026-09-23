@@ -13,6 +13,9 @@ max_review = 2
 max_maintenance = 1
 # Maximum open agent-authored PRs per repository to prevent backlog flooding
 open_pr_cap_per_repo = 3
+# Review verdicts per PR before a further needs-fix hands it back to the human
+# instead of another engineer<->review round (each head SHA is reviewed once)
+max_review_rounds = 3
 # Time-to-live for dispatch locks before they are considered stale (in hours)
 lock_ttl_hours = 2
 
