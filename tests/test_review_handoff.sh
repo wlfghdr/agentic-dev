@@ -98,6 +98,7 @@ export TRIAGE_ENABLE_DISPATCH=1
 run_review() {
     local log_file
     : > "${GH_API_LOG}"
+    rm -rf "${RUNTIME}/state/review-rounds"
     "${ROOT}/scripts/review.sh" acme/app 7 || [[ "${1:-}" == "expect-failure" ]]
     log_file="$(find "${RUNTIME}/logs" -type f -name '*review-app-7.log' -printf '%T@ %p\n' | sort -nr | head -n 1 | cut -d' ' -f2-)"
     cat "${log_file}"
