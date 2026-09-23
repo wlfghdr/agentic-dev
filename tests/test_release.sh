@@ -394,6 +394,9 @@ fi
 [[ ! -e /tmp/agentic-dev-version-pwned ]]
 after_badversion_count="$(wc -l < "${GH_RELEASE_LOG}")"
 [[ "${after_count}" == "${after_badversion_count}" ]]
+# A deterministic contract failure counts as today's evaluation, so detect.py
+# does not re-dispatch it every tick.
+jq -e '.failedExit == 4' "${TRIAGE_STATE_DIR}/release/acme_badversion.json" >/dev/null
 
 if "${ROOT}/scripts/release.sh" acme/leadingzero; then
     echo "leading-zero VERSION unexpectedly released" >&2

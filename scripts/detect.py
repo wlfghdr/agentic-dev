@@ -121,7 +121,7 @@ RELEASE_RECHECK_SECONDS = int(os.environ.get("TRIAGE_RELEASE_RECHECK_SECONDS", "
 OPEN_PR_LIMIT = int(os.environ.get("TRIAGE_OPEN_PR_LIMIT", "1000"))
 OPEN_PR_FIELDS = (
     "number,title,url,isDraft,statusCheckRollup,labels,assignees,author,"
-    "mergeStateStatus,mergeable,isCrossRepository,headRefName,body,"
+    "mergeStateStatus,mergeable,isCrossRepository,headRefName,headRefOid,body,"
     "closingIssuesReferences"
 )
 
@@ -516,6 +516,15 @@ def detect_pr_engineer_items(repo: str, prs: list[dict[str, Any]]) -> list[dict]
     return out
 
 
+def reviewed_heads(repo: str, number: int) -> set[str]:
+    """Head SHAs review.sh already produced a verdict for (see its review ledger)."""
+    ledger = STATE_DIR / "review-rounds" / f"{repo.replace('/', '_')}-{number}"
+    try:
+        return {line.strip() for line in ledger.read_text().splitlines() if line.strip()}
+    except OSError:
+        return set()
+
+
 def detect_review_items(repo: str, prs: list[dict[str, Any]]) -> list[dict]:
     """Open non-draft PRs assigned to AGENT_LOGIN without a terminal workflow label."""
     out = []
@@ -552,6 +561,10 @@ def detect_review_items(repo: str, prs: list[dict[str, Any]]) -> list[dict]:
         terminal_labels = labels & TERMINAL_REVIEW_LABELS
         if terminal_labels:
             skip(repo, pr["number"], "terminal review label: " + ", ".join(sorted(terminal_labels)))
+            continue
+        head = pr.get("headRefOid") or ""
+        if head and head in reviewed_heads(repo, pr["number"]):
+            skip(repo, pr["number"], f"head {head[:7]} already reviewed; waiting for a new commit")
             continue
         out.append({
             "kind": "review",

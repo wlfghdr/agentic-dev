@@ -154,6 +154,7 @@ run_case() {
     export TEST_MODE
     : > "${GH_LOG}"
     rm -f "${APPROVED_ADDED}"
+    rm -rf "${RUNTIME}/state/review-rounds"
     printf '0\n' > "${VIEW_COUNT}"
     case_rc=0
     "${ROOT}/scripts/review.sh" owner/demo 7 || case_rc=$?

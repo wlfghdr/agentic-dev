@@ -28,6 +28,17 @@ if [[ -f "${CONF_FILE}" ]]; then
 fi
 NEEDS_REVIEW_LABEL="needs-review"
 
+# Review ledger: one line per reviewed head SHA. It bounds the engineer<->review
+# loop: a revision is reviewed at most once, and after MAX_REVIEW_ROUNDS
+# needs-fix verdicts the PR goes back to the human instead of another round.
+STATE_DIR="${TRIAGE_STATE_DIR:-${TRIAGE_DIR}/state}"
+ROUNDS_FILE="${STATE_DIR}/review-rounds/${REPO//\//_}-${NUM}"
+MAX_REVIEW_ROUNDS="${TRIAGE_MAX_REVIEW_ROUNDS:-3}"
+if [[ -f "${CONF_FILE}" ]]; then
+    CONF_ROUNDS=$(python3 "${SCRIPT_DIR}/parse_toml.py" "${CONF_FILE}" "limits.max_review_rounds" 2>/dev/null || true)
+    if [[ "${CONF_ROUNDS}" =~ ^[1-9][0-9]*$ ]]; then MAX_REVIEW_ROUNDS="${CONF_ROUNDS}"; fi
+fi
+
 mkdir -p "${LOGDIR}" "$(dirname "${WORKTREE}")"
 
 exec >"${LOG}" 2>&1
@@ -73,6 +84,32 @@ remove_assignee_from() {
     gh api -X DELETE "repos/${1}/issues/${2}/assignees" -f "assignees[]=${3}" >/dev/null 2>&1 || \
         echo "WARN: failed to remove assignee '${3}' from ${1}#${2}" >&2
 }
+review_already_recorded() {
+    [[ -f "${ROUNDS_FILE}" ]] && grep -qxF "${REVIEW_SHA}" "${ROUNDS_FILE}"
+}
+record_review_round() {
+    mkdir -p "$(dirname "${ROUNDS_FILE}")"
+    review_already_recorded || printf '%s\n' "${REVIEW_SHA}" >> "${ROUNDS_FILE}"
+}
+review_round_count() {
+    if [[ -f "${ROUNDS_FILE}" ]]; then grep -c . "${ROUNDS_FILE}" || true; else echo 0; fi
+}
+
+hand_back_blocked() {
+    # A human handoff starts a fresh round budget if the PR is reassigned later.
+    remove_label "${NEEDS_REVIEW_LABEL}"
+    remove_label "in-progress"
+    remove_label "approved"
+    remove_label "changes-requested"
+    add_label "blocked"
+    add_assignee_to "${REPO}" "${NUM}" "${HUMAN_LOGIN}" || true
+    remove_assignee_from "${REPO}" "${NUM}" "${AGENT_LOGIN}"
+    echo "==> Requesting review from human ${HUMAN_LOGIN}"
+    gh api -X POST "repos/${REPO}/pulls/${NUM}/requested_reviewers" -f "reviewers[]=${HUMAN_LOGIN}" >/dev/null 2>&1 || true
+    handoff_closing_issues
+    rm -f "${ROUNDS_FILE}"
+}
+
 handoff_closing_issues() {
     local issue_repo issue_num
 
@@ -253,6 +290,11 @@ if [[ "${TRIAGE_ENABLE_DISPATCH:-0}" != "1" ]]; then
     exit 0
 fi
 
+if review_already_recorded; then
+    echo "==> head ${REVIEW_SHA} was already reviewed; waiting for a new commit"
+    exit 0
+fi
+
 echo "==> marking review in progress"
 ensure_workflow_labels
 add_label "${NEEDS_REVIEW_LABEL}"
@@ -312,6 +354,10 @@ for i in "${!CHAIN[@]}"; do
         break
     fi
 done
+
+if [[ "${rc}" -eq 0 || "${rc}" -eq 3 ]]; then
+    record_review_round
+fi
 
 if [[ "${rc}" -eq 0 ]]; then
     echo "==> agent final line: ${LAST_LINE:-<empty>}"
@@ -404,6 +450,18 @@ if [[ "${rc}" -eq 0 ]]; then
             fi
             ;;
         "VERDICT: needs-fix"*)
+            rounds=$(review_round_count)
+            if (( rounds >= MAX_REVIEW_ROUNDS )); then
+                echo "==> needs-fix after ${rounds} review rounds (cap ${MAX_REVIEW_ROUNDS}); labeling blocked and handing back to ${HUMAN_LOGIN}"
+                hand_back_blocked
+                printf '\n_Review round cap reached (%s rounds); handed back to @%s instead of another fix iteration._\n' \
+                    "${rounds}" "${HUMAN_LOGIN}" >> "${CLEANED_OUT}"
+                submit_pinned_review "COMMENT" "${CLEANED_OUT}" || \
+                    echo "WARN: failed to submit review to ${REPO}#${NUM}" >&2
+                rm -f "${CLEANED_OUT}"
+                rm -f "${REVIEW_OUT}"
+                exit 0
+            fi
             echo "==> needs-fix; labeling changes-requested"
             remove_label "${NEEDS_REVIEW_LABEL}"
             remove_label "approved"
@@ -415,20 +473,7 @@ if [[ "${rc}" -eq 0 ]]; then
             ;;
         "VERDICT: blocked"*)
             echo "==> blocked; labeling blocked and handing back to ${HUMAN_LOGIN}"
-            remove_label "${NEEDS_REVIEW_LABEL}"
-            remove_label "in-progress"
-            remove_label "approved"
-            remove_label "changes-requested"
-            add_label "blocked"
-            add_assignee_to "${REPO}" "${NUM}" "${HUMAN_LOGIN}" || true
-            remove_assignee_from "${REPO}" "${NUM}" "${AGENT_LOGIN}"
-
-            # Request review from human
-            echo "==> Requesting review from human ${HUMAN_LOGIN}"
-            gh api -X POST "repos/${REPO}/pulls/${NUM}/requested_reviewers" -f "reviewers[]=${HUMAN_LOGIN}" >/dev/null 2>&1 || true
-
-            # Assign originating issues using each reference's canonical repository.
-            handoff_closing_issues
+            hand_back_blocked
             echo "==> submitting commit-pinned formal review to PR #${NUM}"
             submit_pinned_review "COMMENT" "${CLEANED_OUT}" || \
                 echo "WARN: failed to submit review to ${REPO}#${NUM}" >&2
@@ -437,16 +482,7 @@ if [[ "${rc}" -eq 0 ]]; then
     rm -f "${CLEANED_OUT}"
 elif [[ "${rc}" -eq 3 ]]; then
     echo "==> invalid review output from all available tools; labeling blocked and handing back to ${HUMAN_LOGIN}"
-    remove_label "${NEEDS_REVIEW_LABEL}"
-    remove_label "in-progress"
-    remove_label "approved"
-    remove_label "changes-requested"
-    add_label "blocked"
-    add_assignee_to "${REPO}" "${NUM}" "${HUMAN_LOGIN}" || true
-    remove_assignee_from "${REPO}" "${NUM}" "${AGENT_LOGIN}"
-    gh api -X POST "repos/${REPO}/pulls/${NUM}/requested_reviewers" -f "reviewers[]=${HUMAN_LOGIN}" >/dev/null 2>&1 || true
-
-    handoff_closing_issues
+    hand_back_blocked
 
     CLEANED_OUT=$(mktemp)
     cat > "${CLEANED_OUT}" <<EOF
