@@ -242,10 +242,11 @@ git -C "${LOCAL_REPO}" fetch --quiet
 git -C "${LOCAL_REPO}" worktree prune
 
 if [[ "${MODE}" == "pr" || "${MODE}" == "rebase" ]]; then
-    PR_JSON=$(gh pr view "${NUM}" -R "${REPO}" --json title,body,baseRefName,headRefName,headRepositoryOwner,url,reviewDecision,mergeable,mergeStateStatus,statusCheckRollup,reviews,comments,files,labels,commits,closingIssuesReferences)
+    PR_JSON=$(gh pr view "${NUM}" -R "${REPO}" --json title,body,baseRefName,headRefName,headRefOid,headRepositoryOwner,url,reviewDecision,mergeable,mergeStateStatus,statusCheckRollup,reviews,comments,files,labels,commits,closingIssuesReferences)
     BASE_REF=$(echo "${PR_JSON}" | jq -r '.baseRefName')
     HEAD_REF=$(echo "${PR_JSON}" | jq -r '.headRefName')
     HEAD_OWNER=$(echo "${PR_JSON}" | jq -r '.headRepositoryOwner.login // ""')
+    PRE_FIX_HEAD=$(echo "${PR_JSON}" | jq -r '.headRefOid // ""')
     SAME_ORIGIN_BRANCH=0
     if [[ "${HEAD_OWNER}" == "${REPO_OWNER}" ]] && git -C "${LOCAL_REPO}" ls-remote --exit-code --heads origin "${HEAD_REF}" >/dev/null 2>&1; then
         BRANCH="${HEAD_REF}"
@@ -449,8 +450,19 @@ if PR_NUMBER=$(gh pr list -R "${REPO}" --head "${BRANCH}" --state open --json nu
         # Codex defaults to draft; flip it. Idempotent: errors if already ready, swallow.
         gh pr ready "${PR_NUMBER}" -R "${REPO}" >/dev/null 2>&1 || true
         if [[ "${MODE}" == "pr" && "${rc}" -eq 0 ]]; then
-            echo "==> clearing changes-requested label after fix iteration"
-            remove_label "${REPO}" "${PR_NUMBER}" "changes-requested"
+            POST_FIX_HEAD=$(gh pr view "${PR_NUMBER}" -R "${REPO}" --json headRefOid --jq '.headRefOid // ""' 2>/dev/null || true)
+            if [[ -n "${PRE_FIX_HEAD:-}" && "${POST_FIX_HEAD}" == "${PRE_FIX_HEAD}" ]]; then
+                # No new commit: clearing changes-requested would re-review the
+                # same revision and loop engineer<->review without progress.
+                echo "==> fix iteration pushed no new commit; labeling blocked and handing back to ${HUMAN_LOGIN}"
+                remove_label "${REPO}" "${PR_NUMBER}" "in-progress"
+                add_label "${REPO}" "${PR_NUMBER}" "blocked"
+                add_assignee "${REPO}" "${PR_NUMBER}" "${HUMAN_LOGIN}"
+                remove_assignee "${REPO}" "${PR_NUMBER}" "${AGENT_LOGIN}"
+            else
+                echo "==> clearing changes-requested label after fix iteration"
+                remove_label "${REPO}" "${PR_NUMBER}" "changes-requested"
+            fi
         fi
     fi
 else

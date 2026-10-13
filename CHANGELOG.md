@@ -19,6 +19,10 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html): `MA
 
 ### Added
 
+- **Review round cap** — `review.sh` keeps a per-PR ledger of reviewed head SHAs (`state/review-rounds/`). A head is reviewed at most once (also enforced in `detect.py`), and a `needs-fix` verdict after `limits.max_review_rounds` (default 3) hands the PR back to the human as `blocked` instead of starting another engineer↔review round. Previously one PR could burn 100+ reviews and 70+ fix runs.
+- **Failed release evaluations count for the day** — `release.sh` records deterministic version-contract failures (exit 3–6) in its daily state, so `detect.py` stops re-dispatching the same failing release every ~20 minutes.
+- **No-progress fix handoff** — an engineer fix iteration that pushes no new commit now labels the PR `blocked` and hands it to the human instead of clearing `changes-requested`, which re-reviewed the same revision and looped.
+
 - **CLI cooldowns** in `cli_dispatch.sh` — usage-limit, login, and missing-binary failures park the CLI (honoring "try again at …" reset times), parked CLIs are skipped in chains, and `tick.sh` no longer dispatches engineer/review work while the whole chain is parked. Previously every queued item re-ran its full failing chain every 20 minutes.
 - **Worktree GC** (`gc_worktrees.sh`) — removes worktrees and agent branches of closed issues and merged/closed PRs every 6 hours.
 

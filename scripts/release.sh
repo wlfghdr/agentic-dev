@@ -66,6 +66,23 @@ fi
 DEFAULT_BRANCH="$(gh repo view "${REPO}" --json defaultBranchRef --jq '.defaultBranchRef.name // "main"')"
 git -C "${LOCAL_REPO}" fetch --quiet --tags origin "${DEFAULT_BRANCH}"
 HEAD_SHA="$(git -C "${LOCAL_REPO}" rev-parse "origin/${DEFAULT_BRANCH}")"
+
+# Version-contract failures (3 tag exists, 4 invalid version, 5 missing metadata, 6 version
+# not newer) are deterministic for this main revision. Record them as today's
+# evaluation so detect.py does not re-dispatch the same failure every tick.
+record_contract_failure() {
+    local rc=$?
+    if (( rc >= 3 && rc <= 6 )); then
+        jq -n \
+            --arg date "${TODAY_UTC}" \
+            --arg repo "${REPO}" \
+            --arg sha "${HEAD_SHA}" \
+            --argjson rc "${rc}" \
+            '{date: $date, repo: $repo, headSha: $sha, failedExit: $rc}' > "${STATE_FILE}" || true
+        echo "==> recorded failed release evaluation for ${TODAY_UTC} (exit ${rc})"
+    fi
+}
+trap record_contract_failure EXIT
 LATEST_RELEASES="$(gh api --paginate --slurp -H "Accept: application/vnd.github+json" \
     "repos/${REPO}/releases?per_page=100")"
 LATEST_TAG="$(latest_stable_release_tag <<<"${LATEST_RELEASES}")"

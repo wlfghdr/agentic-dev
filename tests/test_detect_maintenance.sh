@@ -28,7 +28,7 @@ set -euo pipefail
 
 if [[ "$*" == "issue list -R acme/app --assignee WulfAI --state open --limit 50 --json number,title,url,labels" ]]; then
     printf '[]\n'
-elif [[ "$*" == "pr list -R acme/app --state open --limit 1000 --json number,title,url,isDraft,statusCheckRollup,labels,assignees,author,mergeStateStatus,mergeable,isCrossRepository,headRefName,body,closingIssuesReferences" ]]; then
+elif [[ "$*" == "pr list -R acme/app --state open --limit 1000 --json number,title,url,isDraft,statusCheckRollup,labels,assignees,author,mergeStateStatus,mergeable,isCrossRepository,headRefName,headRefOid,body,closingIssuesReferences" ]]; then
     # Detectors share one open-PR listing; unfiltered gh output names the
     # Dependabot app "app/dependabot".
     sed 's/"isDraft"/"author":{"login":"app\/dependabot"},"isDraft"/' <<'JSON'

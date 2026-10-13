@@ -51,6 +51,9 @@ jobs:
       - name: Run review handoff regression tests
         run: ./tests/test_review_handoff.sh
 
+      - name: Run review round cap regression tests
+        run: ./tests/test_review_rounds.sh
+
       - name: Run maintenance detection regression tests
         run: ./tests/test_detect_maintenance.sh
 
