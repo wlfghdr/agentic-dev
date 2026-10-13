@@ -17,6 +17,11 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html): `MA
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-10-14
+
+> Releases v0.3.0–v0.4.2 were tagged by the daily release job without matching
+> `VERSION`/CHANGELOG updates; their changes are included in this section.
+
 ### Added
 
 - **Review round cap** — `review.sh` keeps a per-PR ledger of reviewed head SHAs (`state/review-rounds/`). A head is reviewed at most once (also enforced in `detect.py`), and a `needs-fix` verdict after `limits.max_review_rounds` (default 3) hands the PR back to the human as `blocked` instead of starting another engineer↔review round. Previously one PR could burn 100+ reviews and 70+ fix runs.
