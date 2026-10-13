@@ -27,17 +27,16 @@ correctness.
 
 ## Versioning
 
-This repository follows Semantic Versioning for releases:
+Releases are derived from Conventional Commits; there is no version file and no
+hand-written changelog.
 
-- `PATCH` fixes behavior without changing supported configuration or interfaces.
-- `MINOR` adds backward-compatible configuration or capabilities.
-- `MAJOR` changes configuration, installation, command behavior, or operational
-  contracts incompatibly.
-
-Until the first tagged release, do not invent or update a version file. When a
-release process is introduced, the version source, changelog, and git tag must
-be updated together. Pull requests that change user-visible behavior must state
-the expected release impact.
+- Pull requests are squash-merged, and the **PR title becomes the commit
+  subject**. It must be a Conventional Commit (`fix: …`, `feat: …`,
+  `feat!: …` / `BREAKING CHANGE:` for incompatible changes). CI enforces this.
+- The daily release job tags the next SemVer (`fix` → PATCH, `feat` → MINOR,
+  breaking → MAJOR) and publishes the GitHub release notes from those subjects.
+- Do not add or edit `VERSION` or `CHANGELOG.md`; the changelog is frozen at
+  0.5.0. Describe user-visible impact in the PR title and body instead.
 
 ## Required Checks
 

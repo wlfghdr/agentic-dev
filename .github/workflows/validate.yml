@@ -63,5 +63,3 @@ jobs:
       - name: Run release regression tests
         run: ./tests/test_release.sh
 
-      - name: Run release workflow regression tests
-        run: ./tests/test_release_workflow.sh

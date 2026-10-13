@@ -267,31 +267,27 @@ Rollback:
 - Reinstall after versioned script changes with `./install.sh`; runtime config
   is preserved by the installer and can be reverted independently.
 
-### Forward-only suite version reconciliation
+### Choosing a release model
 
-Existing public tags are immutable history. Do not move, delete, or recreate
-the already published `agentic-kb` `v6.4.1`, `agentic-enterprise` `v1.0.0`, or
-`agentic-dev` `v0.4.0` tags. Reconcile each repository through its normal pull
-request review workflow, then allow the next release to move forward:
+Version metadata maintained by hand drifts from the tags the job publishes.
+Pick one model per repository and never edit version files in feature PRs:
 
-- `agentic-kb`: prepare at least `6.4.2` in `VERSION`, every packaged plugin
-  manifest, README version references, and a `CHANGELOG.md` `6.4.2` section;
-  configure `version_source = "version"`.
-- `agentic-enterprise`: prepare a version later than both the public tag and
-  its established `4.4.1` framework line (for example `4.4.2`) in
-  `CONFIG.yaml`, README references, packaged manifests, and changelog;
-  configure `version_source = "config_yaml"`.
-- `agentic-dev`: prepare at least `0.4.1` across its authoritative version and
-  release notes before enabling the corresponding adapter. If this repository
-  intentionally has no stored version contract, explicitly choose
-  `version_source = "conventional"` and add the `0.4.1` changelog narrative in
-  the reviewed change.
+- **Tags only (default).** No version file, no hand-written changelog. The job
+  derives the next version from Conventional Commits (`version_source =
+  "conventional"`) and publishes the commit subjects as release notes. Use
+  this unless something outside Git reads an in-tree version. Enforce
+  squash-merges with the PR title as commit subject plus a PR-title lint.
+- **Release PR (release-please).** For repositories whose consumers read an
+  in-tree version (plugin manifests, framework versions), let
+  [release-please](https://github.com/googleapis/release-please) keep a
+  release PR that bumps every version file and generates `CHANGELOG.md`;
+  merging it publishes the release. Set `release = false` for that repository
+  here so the two mechanisms never compete.
+- **Authoritative adapters** (`version`, `config_yaml`, `ios`, `android`)
+  remain for repositories where a human sets the version in a reviewed PR,
+  e.g. app-store builds. They fail closed when metadata is stale.
 
-After those pull requests merge, the deterministic job may publish new tags
-at the reconciled commits. Automatic repair must never rewrite the three
-historical public releases.
-
----
+Existing public tags are immutable history; reconcile forward only.
 
 ## Installation
 
