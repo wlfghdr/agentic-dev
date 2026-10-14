@@ -347,6 +347,8 @@ Issues and PRs welcome. Keep changes focused: this repo is a deterministic loop,
 
 Apache License 2.0 — see [LICENSE](LICENSE).
 
-## Changelog
+## Releases
 
-Release history lives in [`CHANGELOG.md`](CHANGELOG.md).
+Release notes are generated from Conventional Commit PR titles and published as
+[GitHub Releases](https://github.com/wlfghdr/agentic-dev/releases). History up to
+0.5.0 is in the frozen [`CHANGELOG.md`](CHANGELOG.md).
