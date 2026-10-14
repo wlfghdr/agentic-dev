@@ -289,6 +289,21 @@ Pick one model per repository and never edit version files in feature PRs:
 
 Existing public tags are immutable history; reconcile forward only.
 
+**Migrating a repository to tags only.** `install.sh` preserves the runtime
+`triage.toml`, so switch the repository's `version_source` to
+`"conventional"` there *before* (or together with) removing its version file.
+If a repository keeps `version_source = "version"` after `VERSION` is gone,
+`release.sh` exits 5 (`requires VERSION`), records the failed evaluation, and
+publishes nothing until the setting is fixed; the next tick after the fix
+releases normally. Rollback: set `version_source` back and restore the version
+file in a PR, or set `release = false` for the repository. This applies to
+`agentic-dev` itself once `VERSION` is removed.
+
+Tags pushed by hand without a GitHub release are not supported: the job's
+baseline is the latest *release*, so it would compute the existing tag again
+and stop with exit 3. Publish releases only through the job (or create the
+missing release for such a tag by hand).
+
 ## Installation
 
 **Prerequisites:** Linux with systemd, Python ≥ 3.11 (`tomllib`), `git`, and an authenticated `gh` CLI, plus the agent CLIs you configure in your chains.
